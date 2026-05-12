@@ -2,33 +2,30 @@ import streamlit as st
 import pandas as pd
 from datetime import datetime
 import io
+import base64
+from io import BytesIO
+from xhtml2pdf import pisa
 
 # ==========================================
-# 1. CONFIGURAÇÃO E MOTOR DE ESTILOS (VIEW)
+# 1. CONFIGURAÇÃO E ESTILOS DA UI (STREAMLIT)
 # ==========================================
-st.set_page_config(page_title="M e Lopes | ERP Financeiro", layout="wide", initial_sidebar_state="expanded")
+st.set_page_config(page_title="M e Lopes | ERP Financeiro", layout="wide")
 
 st.markdown("""
     <style>
-    @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap');
+    @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;600;700&display=swap');
     * { font-family: 'Inter', sans-serif; }
-    
-    /* Clean UI Customization */
-    .stTabs [data-baseweb="tab-list"] { gap: 24px; }
-    .stTabs [data-baseweb="tab"] { height: 50px; white-space: pre-wrap; font-weight: 600; }
-    
     div[data-testid="stMetric"] {
         background-color: #ffffff; border: 1px solid #e2e8f0; 
-        padding: 20px; border-radius: 12px; box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.05);
+        padding: 20px; border-radius: 12px;
     }
-    
-    .header-title { font-size: 28px; font-weight: 700; color: #0f172a; margin-bottom: 0px; letter-spacing: -0.5px; }
+    .header-title { font-size: 28px; font-weight: 700; color: #0f172a; margin-bottom: 0px; }
     .sub-title { font-size: 14px; color: #64748b; margin-bottom: 20px; }
     </style>
     """, unsafe_allow_html=True)
 
 # ==========================================
-# 2. BANCO DE DADOS EM MEMÓRIA (MODEL)
+# 2. MODEL & CONTROLLER
 # ==========================================
 if 'db_despesas' not in st.session_state:
     st.session_state.db_despesas = pd.DataFrame(columns=["Data", "Fornecedor", "Objeto", "Valor", "Categoria"])
@@ -36,177 +33,145 @@ if 'db_despesas' not in st.session_state:
 if 'clientes' not in st.session_state:
     st.session_state.clientes = {"Wellington Rafael": "014.565.671-36", "G.A Solar": "66.283.560/0001-09"}
 
-# ==========================================
-# 3. FUNÇÕES DE NEGÓCIO (CONTROLLER)
-# ==========================================
-def limpar_valor_monetario(valor):
-    """Garante que qualquer lixo digitado vire número, mas ignora o que já é float numérico."""
-    if isinstance(valor, (int, float)):
-        return float(valor)
-        
-    try:
-        val_str = str(valor).replace('R$', '').replace('.', '').replace(',', '.').strip()
-        return float(val_str)
-    except:
-        return 0.0
-
 def formatar_br(valor):
-    """Converte o float do Python (2500.50) para o padrão visual BR (2.500,50)."""
     return f"{valor:,.2f}".replace(",", "X").replace(".", ",").replace("X", ".")
 
-def processar_lote_excel(texto_colado):
-    """Motor de processamento de dados copiados do Excel."""
+def converter_imagem_base64(path):
+    """Auxiliar para injetar a logo no PDF."""
     try:
-        df_novo = pd.read_csv(io.StringIO(texto_colado), sep='\t', names=["Data", "Fornecedor", "Objeto", "Valor", "Categoria"])
-        df_novo["Valor"] = df_novo["Valor"].apply(limpar_valor_monetario)
-        st.session_state.db_despesas = pd.concat([st.session_state.db_despesas, df_novo], ignore_index=True)
-        return True, len(df_novo)
-    except Exception as e:
-        return False, 0
+        with open(path, "rb") as image_file:
+            return base64.b64encode(image_file.read()).decode()
+    except:
+        return None
+
+def gerar_pdf_profissional(html_content):
+    result = BytesIO()
+    pdf = pisa.pisaDocument(BytesIO(html_content.encode("UTF-8")), result)
+    return result.getvalue() if not pdf.err else None
 
 # ==========================================
-# 4. INTERFACE DE USUÁRIO (SIDEBAR)
+# 3. SIDEBAR E INPUTS
 # ==========================================
 with st.sidebar:
     st.markdown("<div class='header-title'>M e Lopes</div>", unsafe_allow_html=True)
-    st.markdown("<div class='sub-title'>ERP Financeiro v8.0</div>", unsafe_allow_html=True)
+    st.markdown("<div class='sub-title'>ERP Financeiro v10.0</div>", unsafe_allow_html=True)
     st.divider()
-    
     responsavel = st.selectbox("👤 Responsável Ativo", options=list(st.session_state.clientes.keys()))
-    
-    with st.expander("⚙️ Gestão de Cadastros"):
-        n_nome = st.text_input("Novo Responsável")
-        n_pix = st.text_input("Chave PIX")
-        if st.button("Adicionar ao Sistema", use_container_width=True):
-            if n_nome:
-                st.session_state.clientes[n_nome] = n_pix
-                st.rerun()
-                
-    st.divider()
-    if st.button("🗑️ Purgar Dados da Sessão", use_container_width=True, type="primary"):
+    if st.button("🗑️ Purgar Sessão", use_container_width=True, type="primary"):
         st.session_state.db_despesas = pd.DataFrame(columns=["Data", "Fornecedor", "Objeto", "Valor", "Categoria"])
         st.rerun()
 
-# ==========================================
-# 5. PAINEL PRINCIPAL & ABAS DE TRABALHO
-# ==========================================
-st.markdown(f"<div class='header-title'>Painel de Auditoria: {responsavel}</div>", unsafe_allow_html=True)
-st.markdown(f"<div class='sub-title'>PIX Registrado: {st.session_state.clientes[responsavel]}</div>", unsafe_allow_html=True)
-
-aba_importacao, aba_manual = st.tabs(["📥 Importação em Lote (Excel)", "✍️ Lançamento Rápido"])
-
-with aba_importacao:
-    raw_input = st.text_area("Cole as 5 colunas do Excel/PDF extraído:", height=150, 
-                             help="A ordem deve ser: Data | Fornecedor | Objeto | Valor | Categoria")
-    if st.button("Executar Importação", type="secondary"):
-        if raw_input:
-            sucesso, qtd = processar_lote_excel(raw_input)
-            if sucesso:
-                st.success(f"✅ {qtd} registros importados com sucesso!")
-                st.rerun()
-            else:
-                st.error("Falha no processamento. Verifique a estrutura dos dados.")
-
-with aba_manual:
-    st.markdown("Registre notas individuais rapidamente:")
-    col_m1, col_m2, col_m3 = st.columns(3)
-    m_data = col_m1.date_input("Data", format="DD/MM/YYYY")
-    m_forn = col_m2.text_input("Fornecedor")
-    m_obj = col_m3.text_input("Objeto (Ex: Gasolina)")
-    
-    col_m4, col_m5, col_m6 = st.columns(3)
-    m_val = col_m4.number_input("Valor (R$)", min_value=0.0, format="%.2f")
-    m_cat = col_m5.selectbox("Categoria", ["Combustível", "Alimentação", "Viagem", "Material", "Outros"])
-    
-    if col_m6.button("➕ Inserir Linha", use_container_width=True):
-        nova_linha = pd.DataFrame([{"Data": m_data.strftime("%d/%m/%Y"), "Fornecedor": m_forn, "Objeto": m_obj, "Valor": m_val, "Categoria": m_cat}])
-        st.session_state.db_despesas = pd.concat([st.session_state.db_despesas, nova_linha], ignore_index=True)
-        st.success("Lançamento efetuado.")
+# Painel de Lançamentos (Simplificado para o exemplo)
+st.markdown(f"### Painel: {responsavel}")
+raw_input = st.text_area("Importação Rápida (Cole do Excel):", height=100)
+if st.button("Importar Dados"):
+    if raw_input:
+        df_novo = pd.read_csv(io.StringIO(raw_input), sep='\t', names=["Data", "Fornecedor", "Objeto", "Valor", "Categoria"])
+        # Limpeza rápida de valores
+        df_novo["Valor"] = df_novo["Valor"].apply(lambda x: float(str(x).replace('R$', '').replace('.', '').replace(',', '.').strip()) if isinstance(x, str) else x)
+        st.session_state.db_despesas = pd.concat([st.session_state.db_despesas, df_novo], ignore_index=True)
         st.rerun()
 
 # ==========================================
-# 6. MOTOR DE AUDITORIA (TABELA E GRÁFICOS)
+# 4. EXIBIÇÃO E CÁLCULOS
 # ==========================================
-st.divider()
-st.markdown("### 🔍 Detalhamento e Edição")
-
-# Garante limpeza dos valores sem converter em string permanentemente
-st.session_state.db_despesas["Valor"] = st.session_state.db_despesas["Valor"].apply(limpar_valor_monetario)
-
-grid_dados = st.data_editor(
-    st.session_state.db_despesas,
-    num_rows="dynamic",
-    use_container_width=True,
-    column_config={
-        "Valor": st.column_config.NumberColumn("Valor (R$)", format="R$ %.2f", min_value=0),
-        "Categoria": st.column_config.SelectboxColumn(options=["Combustível", "Alimentação", "Viagem", "Material", "Outros"])
-    }
-)
-
-# Inteligência de Negócio (BI)
+grid_dados = st.data_editor(st.session_state.db_despesas, num_rows="dynamic", use_container_width=True)
 val_gasto = float(grid_dados["Valor"].sum()) if not grid_dados.empty else 0.0
+val_adiantamento = st.number_input("Adiantamento Recebido (R$)", min_value=0.0, step=100.0)
+val_saldo = val_gasto - val_adiantamento
 
-col_kpi, col_chart = st.columns([2, 1])
-
-with col_kpi:
-    val_adiantamento = st.number_input("Adiantamento Recebido (R$)", min_value=0.0, step=100.0)
-    val_saldo = val_gasto - val_adiantamento
-    label_saldo = "A REEMBOLSAR (Devido ao Func.)" if val_saldo > 0 else "DEVOLUÇÃO (Sobra em Caixa)"
-    
-    k1, k2, k3 = st.columns(3)
-    k1.metric("GASTO TOTAL", f"R$ {formatar_br(val_gasto)}")
-    k2.metric("ADIANTAMENTO", f"R$ {formatar_br(val_adiantamento)}")
-    k3.metric(label_saldo, f"R$ {formatar_br(abs(val_saldo))}", 
-              delta="- Saída" if val_saldo > 0 else "+ Caixa", 
-              delta_color="normal" if val_saldo <= 0 else "inverse")
-
-with col_chart:
-    st.markdown("**Distribuição de Custos**")
-    if not grid_dados.empty:
-        resumo_cat = grid_dados.groupby("Categoria")["Valor"].sum().reset_index()
-        st.dataframe(
-            resumo_cat, 
-            column_config={
-                "Categoria": "Centro de Custos",
-                "Valor": st.column_config.ProgressColumn("Volume Financeiro", format="R$ %.2f", min_value=0, max_value=float(val_gasto))
-            }, 
-            hide_index=True, use_container_width=True
-        )
-    else:
-        st.caption("Aguardando lançamentos para gerar análise.")
+k1, k2, k3 = st.columns(3)
+k1.metric("GASTO TOTAL", f"R$ {formatar_br(val_gasto)}")
+k2.metric("ADIANTAMENTO", f"R$ {formatar_br(val_adiantamento)}")
+k3.metric("SALDO FINAL", f"R$ {formatar_br(abs(val_saldo))}")
 
 # ==========================================
-# 7. SISTEMA DE ANEXOS E EXPORTAÇÃO
+# 5. MOTOR DE RELATÓRIO PROFISSIONAL
 # ==========================================
 st.divider()
-up_files = st.file_uploader("📎 Digitalizar Comprovantes (Anexos Legais)", accept_multiple_files=True)
-
-col_exp1, col_exp2 = st.columns(2)
+st.markdown("### 📄 Geração de Relatório")
+up_files = st.file_uploader("Anexar Comprovantes para Conferência", accept_multiple_files=True)
 
 if not grid_dados.empty:
-    html_table = grid_dados.to_html(index=False, border=0)
-    lista_comprovantes = ", ".join([f.name for f in up_files]) if up_files else "Nenhum"
-    
-    # Gerador HTML Otimizado com formatação BRL
-    html_doc = f"""
+    # Preparação da Logo
+    logo_b64 = converter_imagem_base64("logo.png") # Certifique-se de ter o arquivo logo.png
+    logo_html = f'<img src="data:image/png;base64,{logo_b64}" width="150">' if logo_b64 else "<h2>M e Lopes</h2>"
+
+    # Estilo CSS para o PDF (xhtml2pdf)
+    css_pdf = """
+        <style>
+            @page { size: a4; margin: 2cm; }
+            body { font-family: Helvetica, Arial, sans-serif; color: #333; line-height: 1.4; }
+            .header { border-bottom: 2px solid #0f172a; padding-bottom: 10px; margin-bottom: 20px; }
+            .title { font-size: 22px; font-weight: bold; color: #0f172a; }
+            .summary-box { background-color: #f8fafc; border: 1px solid #e2e8f0; padding: 15px; margin-bottom: 20px; }
+            table { width: 100%; border-collapse: collapse; margin-top: 10px; font-size: 10px; }
+            th { background-color: #0f172a; color: white; padding: 8px; text-align: left; }
+            td { padding: 8px; border-bottom: 1px solid #e2e8f0; }
+            .zebra { background-color: #f1f5f9; }
+            .footer { position: fixed; bottom: 0; width: 100%; text-align: center; font-size: 9px; color: #94a3b8; border-top: 1px solid #e2e8f0; padding-top: 5px; }
+        </style>
+    """
+
+    # Construção das linhas da tabela com efeito zebra
+    rows_html = ""
+    for i, row in grid_dados.iterrows():
+        classe = 'class="zebra"' if i % 2 == 0 else ""
+        rows_html += f"""
+            <tr {classe}>
+                <td>{row['Data']}</td>
+                <td>{row['Fornecedor']}</td>
+                <td>{row['Objeto']}</td>
+                <td>{row['Categoria']}</td>
+                <td>R$ {formatar_br(row['Valor'])}</td>
+            </tr>
+        """
+
+    html_final = f"""
     <html>
-    <body style="font-family: 'Inter', sans-serif; padding: 40px; color: #1e293b;">
-        <h2 style="border-bottom: 2px solid #e2e8f0; padding-bottom: 10px;">M e Lopes | Fechamento de Obra</h2>
-        <p><b>Responsável:</b> {responsavel} | <b>Emissão:</b> {datetime.now().strftime('%d/%m/%Y')}</p>
-        <div style="background: #f8fafc; padding: 20px; border-radius: 8px; border: 1px solid #e2e8f0; margin-bottom: 20px;">
-            <b style="font-size: 16px;">Consolidação Financeira:</b><br><br>
-            Custo Operacional Total: R$ {formatar_br(val_gasto)} <br>
-            Adiantamento Disponibilizado: R$ {formatar_br(val_adiantamento)} <br>
-            <b style="color: #0f172a; font-size: 18px;">Resultado Final ({label_saldo}): R$ {formatar_br(abs(val_saldo))}</b>
-        </div>
-        {html_table}
-        <p style="margin-top: 20px; font-size: 12px; color: #64748b;"><b>Comprovantes Analisados:</b> {lista_comprovantes}</p>
-    </body>
+        <head>{css_pdf}</head>
+        <body>
+            <div class="header">
+                <table style="border: none;">
+                    <tr>
+                        <td style="border: none; width: 50%;">{logo_html}</td>
+                        <td style="border: none; width: 50%; text-align: right;">
+                            <span class="title">Despesas com caixa de obra</span><br>
+                            <span style="font-size: 10px;">Emissão: {datetime.now().strftime('%d/%m/%Y %H:%M')}</span>
+                        </td>
+                    </tr>
+                </table>
+            </div>
+
+            <div class="summary-box">
+                <b>Responsável:</b> {responsavel}<br>
+                <b>Total Acumulado:</b> R$ {formatar_br(val_gasto)}<br>
+                <b>Adiantamento:</b> R$ {formatar_br(val_adiantamento)}<br>
+                <b style="font-size: 14px;">Saldo a {"Reembolsar" if val_saldo > 0 else "Devolver"}: R$ {formatar_br(abs(val_saldo))}</b>
+            </div>
+
+            <table>
+                <thead>
+                    <tr>
+                        <th>Data</th>
+                        <th>Fornecedor</th>
+                        <th>Objeto</th>
+                        <th>Categoria</th>
+                        <th>Valor</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {rows_html}
+                </tbody>
+            </table>
+
+            <div class="footer">
+                Desenvolvido por M e Lopes Assessoria em Tecnologia
+            </div>
+        </body>
     </html>
     """
-    
-    with col_exp1:
-        st.download_button("📄 Emitir Relatório Oficial (HTML)", data=html_doc, file_name=f"Relatorio_{responsavel}.html", mime="text/html", use_container_width=True)
-    with col_exp2:
-        csv_backup = grid_dados.to_csv(index=False).encode('utf-8')
-        st.download_button("💾 Backup de Dados (CSV)", data=csv_backup, file_name=f"Backup_{responsavel}.csv", mime="text/csv", use_container_width=True)
+
+    pdf_bytes = gerar_pdf_profissional(html_final)
+    if pdf_bytes:
+        st.download_button("📥 Baixar Relatório Profissional (PDF)", data=pdf_bytes, file_name=f"Relatorio_Caixa_{responsavel}.pdf", mime="application/pdf", use_container_width=True)
