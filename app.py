@@ -3,20 +3,20 @@ import pandas as pd
 from datetime import datetime
 import io
 
-# 1. CONFIGURAÇÃO E TEMA
-st.set_page_config(page_title="M e Lopes | Gestão de Caixa", layout="wide")
+# 1. SETUP E DESIGN
+st.set_page_config(page_title="M e Lopes | Cloud Finance", layout="wide")
 
 st.markdown("""
     <style>
     @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;700;800&display=swap');
     html, body, [data-testid="stSidebar"] { font-family: 'Inter', sans-serif; }
-    .main-header { font-size: 32px; font-weight: 800; color: #0f172a; letter-spacing: -1px; }
     .stMetric { background-color: #f8fafc; padding: 15px; border-radius: 10px; border: 1px solid #e2e8f0; }
     .stTextArea textarea { border: 1px dashed #38bdf8; background-color: #f0f9ff; }
+    .main-header { font-size: 32px; font-weight: 800; color: #0f172a; letter-spacing: -1px; }
     </style>
     """, unsafe_allow_html=True)
 
-# 2. INICIALIZAÇÃO DE MEMÓRIA (IMPORTANTE)
+# 2. INICIALIZAÇÃO DE MEMÓRIA
 if 'clientes' not in st.session_state:
     st.session_state.clientes = {
         "Wellington Rafael": {"pix": "014.565.671-36"},
@@ -26,47 +26,47 @@ if 'clientes' not in st.session_state:
 if 'despesas' not in st.session_state:
     st.session_state.despesas = pd.DataFrame(columns=["Data", "Fornecedor", "Objeto", "Valor (R$)", "Centro de Custos"])
 
-# 3. SIDEBAR: GESTÃO E CADASTRO
+# 3. SIDEBAR
 with st.sidebar:
     st.markdown("<h2 style='color: #0f172a;'>M e Lopes</h2>", unsafe_allow_html=True)
-    st.caption("Controle de Fluxo v6.1")
+    st.caption("Controle de Fluxo v6.2")
     st.divider()
     
-    cliente_ativo = st.selectbox("Responsável pela Obra", options=list(st.session_state.clientes.keys()))
+    cliente_ativo = st.selectbox("Responsável", options=list(st.session_state.clientes.keys()))
     
-    with st.expander("➕ Cadastrar Novo Cliente"):
+    with st.expander("➕ Novo Cadastro"):
         n_nome = st.text_input("Nome")
         n_pix = st.text_input("PIX")
-        if st.button("Gravar Cliente"):
+        if st.button("Gravar"):
             if n_nome:
                 st.session_state.clientes[n_nome] = {"pix": n_pix}
                 st.rerun()
 
-    if st.button("🗑️ Resetar Sistema"):
+    if st.button("🗑️ Resetar Tudo"):
         st.session_state.despesas = pd.DataFrame(columns=["Data", "Fornecedor", "Objeto", "Valor (R$)", "Centro de Custos"])
         st.rerun()
 
-# 4. ÁREA DE IMPORTAÇÃO (COPIAR E COLAR)
+# 4. ÁREA DE TRABALHO E IMPORTAÇÃO
 st.markdown(f"<div class='main-header'>Caixa: {cliente_ativo}</div>", unsafe_allow_html=True)
-st.write(f"**Chave PIX:** {st.session_state.clientes[cliente_ativo]['pix']}")
+st.write(f"**PIX:** {st.session_state.clientes[cliente_ativo]['pix']}")
 
-with st.expander("📥 Importar Dados do Excel (Copiar/Colar)", expanded=True):
-    st.info("Copie as 5 colunas do Excel (Data, Fornecedor, Objeto, Valor, Categoria) e cole abaixo.")
-    texto_colado = st.text_area("Cole aqui os dados da sua planilha:", height=100)
-    
-    if st.button("Processar Colagem"):
+with st.expander("📥 Importar Dados (Copiar/Colar)", expanded=True):
+    texto_colado = st.text_area("Cole as 5 colunas do Excel/Extração abaixo:", height=100)
+    if st.button("Processar Dados"):
         if texto_colado:
             try:
                 df_temp = pd.read_csv(io.StringIO(texto_colado), sep='\t', names=["Data", "Fornecedor", "Objeto", "Valor (R$)", "Centro de Custos"])
+                # Limpeza de valores para garantir que sejam números
+                df_temp["Valor (R$)"] = df_temp["Valor (R$)"].toString().replace('R$', '').replace('.', '').replace(',', '.')
+                df_temp["Valor (R$)"] = pd.to_numeric(df_temp["Valor (R$)"], errors='coerce').fillna(0.0)
+                
                 st.session_state.despesas = pd.concat([st.session_state.despesas, df_temp], ignore_index=True)
-                st.success(f"{len(df_temp)} registros adicionados!")
+                st.success("Importado!")
                 st.rerun()
             except:
-                st.error("Erro no formato. Certifique-se de copiar exatamente 5 colunas.")
+                st.error("Erro no formato. Copie as colunas separadas por TAB.")
 
-st.divider()
-
-# 5. TABELA DE EDIÇÃO E CONFERÊNCIA
+# 5. TABELA DE EDIÇÃO
 st.markdown("### 📝 Conferência de Lançamentos")
 despesas_finais = st.data_editor(
     st.session_state.despesas,
@@ -78,19 +78,29 @@ despesas_finais = st.data_editor(
     }
 )
 
-# 6. DASHBOARD E CÁLCULOS
-total = despesas_finais["Valor (R$)"].sum()
+# 6. ANEXAR COMPROVANTES (PDF/IMAGENS)
+st.markdown("### 📎 Anexar PDFs das Notas")
+arquivos = st.file_uploader("Suba aqui os comprovantes digitalizados", accept_multiple_files=True, type=['pdf', 'jpg', 'png'])
+
+# 7. DASHBOARD FINANCEIRO (COM TRATAMENTO DE ERRO)
+st.divider()
+try:
+    total = float(despesas_finais["Valor (R$)"].sum())
+except:
+    total = 0.0
+
 adiantamento = st.number_input("Adiantamento Recebido (R$)", min_value=0.0, step=100.0)
 saldo = total - adiantamento
 status = "REEMBOLSO" if saldo > 0 else "DEVOLUÇÃO"
 
 c1, c2, c3 = st.columns(3)
-c1.metric("Total Gasto", f"R$ {total:,.2f}")
+c1.metric("Gasto Total", f"R$ {total:,.2f}")
 c2.metric("Adiantamento", f"R$ {adiantamento:,.2f}")
 c3.metric(status, f"R$ {abs(saldo):,.2f}", delta="- Saída" if saldo > 0 else "+ Sobra")
 
-# 7. GERADOR DE RELATÓRIO (DOWNLOAD)
+# 8. GERADOR DE RELATÓRIO
 tabela_html = despesas_finais.to_html(index=False, border=0)
+lista_anexos = "".join([f"<li>{a.name}</li>" for a in arquivos]) if arquivos else "Nenhum"
 
 relatorio_html = f"""
 <!DOCTYPE html>
@@ -113,23 +123,14 @@ relatorio_html = f"""
     </div>
     <h2>Relatório de Caixa: {cliente_ativo}</h2>
     <div class="card">
-        <strong>RESUMO FINANCEIRO:</strong><br>
         Gasto Total: R$ {total:,.2f} | Adiantamento: R$ {adiantamento:,.2f} | <strong>{status}: R$ {abs(saldo):,.2f}</strong>
     </div>
     {tabela_html}
+    <div style="margin-top: 20px;"><strong>Anexos:</strong> <ul>{lista_anexos}</ul></div>
     <p style="margin-top: 30px; font-size: 8pt; color: #94a3b8; text-align: center;">M e Lopes, assessoria em tecnologia</p>
 </body>
 </html>
 """
 
 if not despesas_finais.empty:
-    st.download_button(
-        label="🚀 Baixar Relatório Premium",
-        data=relatorio_html,
-        file_name=f"Relatorio_{cliente_ativo}.html",
-        mime="text/html"
-    )
-else:
-    st.warning("Adicione lançamentos para habilitar o download.")
-
-st.markdown("<p style='text-align:center; color:#94a3b8; font-size:10px;'>M e Lopes, assessoria em tecnologia</p>", unsafe_allow_html=True)
+    st.download_button("🚀 Baixar Relatório Premium", data=relatorio_html, file_name=f"Relatorio_{cliente_ativo}.html", mime="text/html")
