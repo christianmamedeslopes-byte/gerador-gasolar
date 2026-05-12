@@ -155,5 +155,5 @@ relatorio_html = f"""
 </html>
 """
 
-st.download_button("🚀 Exportar Relatório Premium", data=relatorio_pdf, file_name=f"Relatorio_{cliente_selecionado}.html", mime="text/html")
+st.download_button("🚀 Exportar Relatório Premium", data=relatorio_html, file_name=f"Relatorio_{cliente_selecionado}.html", mime="text/html")
 st.markdown("<br><p style='text-align:center; color:#94a3b8; font-size:10px;'>M e Lopes, assessoria em tecnologia</p>", unsafe_allow_stdio=True)
