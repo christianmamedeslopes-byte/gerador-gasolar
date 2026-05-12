@@ -2,30 +2,47 @@ import streamlit as st
 import pandas as pd
 from datetime import datetime
 
-st.set_page_config(page_title="Caixa de Obra | M e Lopes", layout="wide")
+st.set_page_config(page_title="Gestão de Caixa | M e Lopes", layout="wide")
 
-# Cabeçalho do Sistema
-st.title("Fechamento de Caixa e Reembolso")
-st.subheader("G.A Solar - Engenharia Financeira")
+# --- BANCO DE DADOS TEMPORÁRIO DE CLIENTES ---
+if 'clientes' not in st.session_state:
+    st.session_state.clientes = {
+        "Wellington Rafael": {"pix": "014.565.671-36", "banco": "Santander"},
+        "G.A Solar (Geral)": {"pix": "CNPJ: 66.283.560/0001-09", "banco": "PJ Bank"}
+    }
 
-# 1. DADOS DO FAVORECIDO
-st.write("### 1. Dados para Reembolso")
-col1, col2, col3 = st.columns(3)
-funcionario = col1.text_input("Funcionário", value="Wellington Rafael")
-chave_pix = col2.text_input("Chave PIX / CPF")
-banco = col3.text_input("Banco")
+# --- BARRA LATERAL (GESTÃO DE CLIENTES) ---
+with st.sidebar:
+    st.title("M e Lopes")
+    st.subheader("Painel de Controle")
+    
+    # Seleção de Cliente/Obra
+    cliente_selecionado = st.selectbox("Selecione o Cliente/Obra", options=list(st.session_state.clientes.keys()))
+    
+    st.divider()
+    
+    # Inclusão de Novo Cliente
+    st.write("### + Incluir Novo Cliente")
+    novo_nome = st.text_input("Nome do Cliente/Func.")
+    novo_pix = st.text_input("Chave PIX")
+    novo_banco = st.text_input("Banco")
+    
+    if st.button("Salvar Novo Cliente"):
+        if novo_nome:
+            st.session_state.clientes[novo_nome] = {"pix": novo_pix, "banco": novo_banco}
+            st.success("Cliente adicionado!")
+            st.rerun()
 
-# 2. CONTROLE DE CAIXA
-st.write("### 2. Controle de Saldo Inicial")
-adiantamento = st.number_input("Valor do Adiantamento Fornecido (R$)", min_value=0.0, step=100.0)
+# --- INTERFACE PRINCIPAL ---
+st.title(f"Caixa de Obra: {cliente_selecionado}")
+st.info(f"Dados Atuais: {st.session_state.clientes[cliente_selecionado]['banco']} | PIX: {st.session_state.clientes[cliente_selecionado]['pix']}")
 
-# 3. TABELA DE LANÇAMENTOS
-st.write("### 3. Lançamento de Recibos e Notas")
+# 1. ENTRADA DE DADOS
+adiantamento = st.number_input("Valor do Adiantamento (R$)", min_value=0.0, step=100.0)
 
+st.write("### Lançamentos de Despesas")
 if 'despesas' not in st.session_state:
-    st.session_state.despesas = pd.DataFrame(
-        columns=["Data", "Objeto", "Valor (R$)", "Centro de Custos"]
-    )
+    st.session_state.despesas = pd.DataFrame(columns=["Data", "Objeto", "Valor (R$)", "Centro de Custos"])
 
 despesas_editadas = st.data_editor(
     st.session_state.despesas,
@@ -39,88 +56,62 @@ despesas_editadas = st.data_editor(
     }
 )
 
-# 3.1 ANEXOS (NOVIDADE)
-st.write("### 3.1 Anexar Comprovantes (Digitalização)")
-arquivos_anexados = st.file_uploader(
-    "Arraste os recibos (PDF, PNG, JPG)", 
-    type=["pdf", "png", "jpg", "jpeg"], 
-    accept_multiple_files=True
-)
+arquivos_anexados = st.file_uploader("Anexar Comprovantes", type=["pdf", "png", "jpg", "jpeg"], accept_multiple_files=True)
 
-lista_anexos_html = ""
-if arquivos_anexados:
-    st.success(f"{len(arquivos_anexados)} comprovante(s) carregado(s).")
-    lista_anexos_html = "<ul>" + "".join([f"<li>{arq.name}</li>" for arq in arquivos_anexados]) + "</ul>"
-
-# 4. PROCESSAMENTO FINANCEIRO
-st.write("### 4. Resumo Financeiro")
+# 2. CÁLCULOS
 total_gasto = despesas_editadas["Valor (R$)"].sum()
 saldo = total_gasto - adiantamento
+status_caixa = "CAIXA ZERADO"
+if saldo > 0: status_caixa = f"A REEMBOLSAR: R$ {saldo:,.2f}"
+elif saldo < 0: status_caixa = f"SALDO EM CAIXA: R$ {abs(saldo):,.2f}"
 
 colA, colB, colC = st.columns(3)
 colA.metric("Total Gasto", f"R$ {total_gasto:,.2f}")
 colB.metric("Adiantamento", f"R$ {adiantamento:,.2f}")
+colC.metric("Resultado", status_caixa)
 
-if saldo > 0:
-    status_caixa = f"A REEMBOLSAR: R$ {saldo:,.2f}"
-    colC.metric("A Reembolsar", f"R$ {saldo:,.2f}", delta="Saída", delta_color="inverse")
-elif saldo < 0:
-    status_caixa = f"SALDO EM CAIXA (DEVOLVER): R$ {abs(saldo):,.2f}"
-    colC.metric("Saldo em Caixa", f"R$ {abs(saldo):,.2f}", delta="Retorno", delta_color="normal")
-else:
-    status_caixa = "CAIXA ZERADO"
-    colC.metric("Situação", "R$ 0,00")
-
-# 5. GERADOR DE RELATÓRIO
-st.write("---")
+# 3. EXPORTAÇÃO
 tabela_html = despesas_editadas.to_html(index=False, border=1, justify="center")
+lista_anexos = "".join([f"<li>{arq.name}</li>" for arq in arquivos_anexados]) if arquivos_anexados else "Nenhum"
 
 relatorio_html = f"""
 <!DOCTYPE html>
-<html lang="pt-PT">
+<html>
 <head>
-    <meta charset="UTF-8">
     <style>
-        body {{ font-family: sans-serif; color: #333; margin: 30px; line-height: 1.5; }}
-        .header {{ border-bottom: 2px solid #0f172a; padding-bottom: 10px; margin-bottom: 20px; }}
-        .box {{ background-color: #f1f5f9; padding: 15px; border-radius: 5px; margin-bottom: 20px; border: 1px solid #cbd5e1; }}
-        table {{ width: 100%; border-collapse: collapse; font-size: 9pt; }}
-        th {{ background-color: #0f172a; color: white; padding: 8px; }}
-        td {{ border: 1px solid #e2e8f0; padding: 6px; text-align: center; }}
-        .footer-total {{ text-align: right; font-weight: bold; font-size: 12pt; margin-top: 20px; color: #1e293b; }}
-        .anexos {{ margin-top: 30px; border-top: 1px dashed #ccc; padding-top: 10px; font-size: 9pt; }}
+        body {{ font-family: Arial, sans-serif; padding: 20px; }}
+        .header {{ border-bottom: 2px solid #000; padding-bottom: 10px; margin-bottom: 20px; text-align: center; }}
+        table {{ width: 100%; border-collapse: collapse; margin-top: 15px; }}
+        th {{ background-color: #f2f2f2; padding: 8px; border: 1px solid #ddd; }}
+        td {{ padding: 8px; border: 1px solid #ddd; text-align: center; }}
+        .footer {{ margin-top: 50px; padding-top: 10px; border-top: 1px solid #eee; text-align: center; color: #666; font-size: 10pt; }}
     </style>
 </head>
 <body>
     <div class="header">
-        <h2 style="margin:0;">RELATÓRIO DE CAIXA DE OBRA - G.A SOLAR</h2>
-        <small>Processado por: M e Lopes Assessoria | {datetime.now().strftime("%d/%m/%Y %H:%M")}</small>
+        <h2>CAIXA DE OBRA - {cliente_selecionado.upper()}</h2>
+        <p>G.A SOLAR | Emitido em: {datetime.now().strftime("%d/%m/%Y")}</p>
     </div>
-
-    <div class="box">
-        <strong>Funcionário:</strong> {funcionario} <br>
-        <strong>Dados PIX:</strong> {banco} - {chave_pix} <br>
-        <strong>Adiantamento:</strong> R$ {adiantamento:,.2f}
-    </div>
-
+    <p><strong>PIX:</strong> {st.session_state.clientes[cliente_selecionado]['pix']} | <strong>Banco:</strong> {st.session_state.clientes[cliente_selecionado]['banco']}</p>
+    <p><strong>Adiantamento:</strong> R$ {adiantamento:,.2f}</p>
+    
     {tabela_html}
-
-    <div class="footer-total">
-        TOTAL GASTO: R$ {total_gasto:,.2f} <br>
-        STATUS FINAL: {status_caixa}
-    </div>
-
-    <div class="anexos">
-        <strong>Checklist de Comprovantes Anexados:</strong>
-        {lista_anexos_html if arquivos_anexados else "<p>Nenhum comprovante digital anexado.</p>"}
+    
+    <h3 style="text-align: right;">Total Gasto: R$ {total_gasto:,.2f}</h3>
+    <h4 style="text-align: right;">{status_caixa}</h4>
+    
+    <div style="font-size: 8pt;"><strong>Anexos:</strong> <ul>{lista_anexos}</ul></div>
+    
+    <div class="footer">
+        <strong>M e Lopes, assessoria em tecnologia</strong><br>
+        Soluções Digitais para Engenharia e Agronegócio
     </div>
 </body>
 </html>
 """
 
-st.download_button(
-    label="📄 Gerar e Transferir Relatório PDF",
-    data=relatorio_html,
-    file_name=f"Caixa_{funcionario}_{datetime.now().strftime('%d_%m')}.html",
-    mime="text/html"
-)
+st.download_button("📄 Gerar Relatório M e Lopes", data=relatorio_html, file_name=f"Caixa_{cliente_selecionado}.html", mime="text/html")
+
+# --- RODAPÉ DA PÁGINA ---
+st.markdown("---")
+st.caption("M e Lopes, assessoria em tecnologia")
