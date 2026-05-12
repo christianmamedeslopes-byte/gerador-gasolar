@@ -3,100 +3,166 @@ import pandas as pd
 from datetime import datetime
 import io
 
-# 1. SETUP
-st.set_page_config(page_title="M e Lopes | Financeiro", layout="wide")
+# 1. CONFIGURAÇÃO PREMIUM
+st.set_page_config(page_title="M e Lopes | Gestão Financeira", layout="wide")
 
+# Customização CSS para visual Empresarial
 st.markdown("""
     <style>
-    @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;700;800&display=swap');
-    html, body, [data-testid="stSidebar"] { font-family: 'Inter', sans-serif; }
-    .stMetric { background-color: #f8fafc; padding: 15px; border-radius: 10px; border: 1px solid #e2e8f0; border-left: 5px solid #38bdf8; }
-    .main-header { font-size: 32px; font-weight: 800; color: #0f172a; letter-spacing: -1px; }
+    @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;600;700&display=swap');
+    
+    * { font-family: 'Inter', sans-serif; }
+    
+    /* Esconder elementos desnecessários */
+    #MainMenu {visibility: hidden;}
+    footer {visibility: hidden;}
+    
+    /* Cards de Métricas Estilizados */
+    [data-testid="stMetric"] {
+        background-color: #ffffff;
+        border: 1px solid #e2e8f0;
+        padding: 20px;
+        border-radius: 12px;
+        box-shadow: 0 1px 3px rgba(0,0,0,0.02);
+    }
+    
+    /* Cabeçalho e Títulos */
+    .company-title { font-size: 24px; font-weight: 700; color: #0f172a; margin-bottom: 5px; }
+    .section-header { font-size: 18px; font-weight: 600; color: #334155; margin-top: 25px; margin-bottom: 15px; }
+    
+    /* Inputs e Botões */
+    .stButton>button {
+        width: 100%;
+        border-radius: 8px;
+        font-weight: 600;
+        background-color: #0f172a !important;
+        color: white !important;
+        border: none;
+    }
     </style>
     """, unsafe_allow_html=True)
 
-# 2. ESTADO DA SESSÃO
-if 'despesas' not in st.session_state:
-    st.session_state.despesas = pd.DataFrame(columns=["Data", "Fornecedor", "Objeto", "Valor (R$)", "Centro de Custos"])
+# 2. GESTÃO DE ESTADO
+if 'db_despesas' not in st.session_state:
+    st.session_state.db_despesas = pd.DataFrame(columns=["Data", "Fornecedor", "Objeto", "Valor", "Categoria"])
 
-if 'clientes' not in st.session_state:
-    st.session_state.clientes = {"Wellington Rafael": "014.565.671-36", "G.A Solar (Geral)": "66.283.560/0001-09"}
+if 'lista_clientes' not in st.session_state:
+    st.session_state.lista_clientes = {
+        "Wellington Rafael": "014.565.671-36",
+        "G.A Solar (Geral)": "66.283.560/0001-09"
+    }
 
-# 3. SIDEBAR
+# 3. BARRA LATERAL NAVEGACIONAL
 with st.sidebar:
-    st.markdown("<h2 style='color: #0f172a;'>M e Lopes</h2>", unsafe_allow_html=True)
-    st.caption("Versão 6.3 - Cálculo Blindado")
+    st.markdown("<div class='company-title'>M e Lopes</div>", unsafe_allow_html=True)
+    st.caption("Assessoria em Tecnologia e Gestão")
     st.divider()
-    cliente_ativo = st.selectbox("Responsável", options=list(st.session_state.clientes.keys()))
-    if st.button("🗑️ Limpar Tudo"):
-        st.session_state.despesas = pd.DataFrame(columns=["Data", "Fornecedor", "Objeto", "Valor (R$)", "Centro de Custos"])
+    
+    responsavel = st.selectbox("Unidade de Negócio / Responsável", options=list(st.session_state.lista_clientes.keys()))
+    
+    with st.expander("Configurações de Cadastro"):
+        novo_c = st.text_input("Novo Responsável")
+        novo_p = st.text_input("PIX de Repasse")
+        if st.button("Salvar Cadastro"):
+            if novo_c:
+                st.session_state.lista_clientes[novo_c] = novo_p
+                st.rerun()
+                
+    if st.button("Limpar Sessão Atual"):
+        st.session_state.db_despesas = pd.DataFrame(columns=["Data", "Fornecedor", "Objeto", "Valor", "Categoria"])
         st.rerun()
 
-# 4. ENTRADA DE DADOS (PARSER)
-st.markdown(f"<div class='main-header'>Gestão de Caixa: {cliente_ativo}</div>", unsafe_allow_html=True)
+# 4. PAINEL PRINCIPAL
+st.markdown(f"<div class='company-title'>Relatório de Fluxo: {responsavel}</div>", unsafe_allow_html=True)
+st.caption(f"Chave para Repasse: {st.session_state.lista_clientes[responsavel]}")
 
-with st.expander("📥 Importar do Excel / Extração (Colar)", expanded=True):
-    texto = st.text_area("Cole as colunas aqui:", height=100)
-    if st.button("Processar Dados"):
-        if texto:
-            df_temp = pd.read_csv(io.StringIO(texto), sep='\t', names=["Data", "Fornecedor", "Objeto", "Valor (R$)", "Centro de Custos"])
-            
-            # LIMPEZA DOS VALORES (Onde estava o erro)
-            df_temp["Valor (R$)"] = df_temp["Valor (R$)"].astype(str).str.replace('R$', '', regex=False).str.replace('.', '', regex=False).str.replace(',', '.', regex=False).str.strip()
-            df_temp["Valor (R$)"] = pd.to_numeric(df_temp["Valor (R$)"], errors='coerce').fillna(0.0)
-            
-            st.session_state.despesas = pd.concat([st.session_state.despesas, df_temp], ignore_index=True)
-            st.rerun()
+# Importador Inteligente
+with st.expander("📥 Importação de Dados Externos", expanded=False):
+    raw_input = st.text_area("Cole os dados da planilha aqui (Data, Fornecedor, Objeto, Valor, Categoria):", height=120)
+    if st.button("Processar e Integrar"):
+        if raw_input:
+            try:
+                new_data = pd.read_csv(io.StringIO(raw_input), sep='\t', names=["Data", "Fornecedor", "Objeto", "Valor", "Categoria"])
+                # Conversão robusta de tipos
+                new_data["Valor"] = new_data["Valor"].astype(str).str.replace('R$', '', regex=False).str.replace('.', '', regex=False).str.replace(',', '.', regex=False).str.strip()
+                new_data["Valor"] = pd.to_numeric(new_data["Valor"], errors='coerce').fillna(0.0)
+                
+                st.session_state.db_despesas = pd.concat([st.session_state.db_despesas, new_data], ignore_index=True)
+                st.rerun()
+            except Exception as e:
+                st.error("Falha na interpretação dos dados. Verifique a formatação das colunas.")
 
-# 5. TABELA DE CONFERÊNCIA
-st.markdown("### 📝 Itens Lançados")
-# Garantir que a coluna de valor é numérica antes de mostrar
-st.session_state.despesas["Valor (R$)"] = pd.to_numeric(st.session_state.despesas["Valor (R$)"], errors='coerce').fillna(0.0)
+# 5. CONFERÊNCIA E ANEXOS
+st.markdown("<div class='section-header'>Detalhamento de Lançamentos</div>", unsafe_allow_html=True)
 
-despesas_finais = st.data_editor(
-    st.session_state.despesas,
+# Garante que a coluna valor é float antes de exibir
+st.session_state.db_despesas["Valor"] = pd.to_numeric(st.session_state.db_despesas["Valor"], errors='coerce').fillna(0.0)
+
+grid_dados = st.data_editor(
+    st.session_state.db_despesas,
     num_rows="dynamic",
     use_container_width=True,
     column_config={
-        "Valor (R$)": st.column_config.NumberColumn("Valor (R$)", format="R$ %.2f"),
-        "Centro de Custos": st.column_config.SelectboxColumn(options=["Alimentação", "Combustível", "Viagem", "Material", "Outros"])
+        "Valor": st.column_config.NumberColumn("Valor (R$)", format="R$ %.2f", min_value=0),
+        "Categoria": st.column_config.SelectboxColumn(options=["Combustível", "Alimentação", "Viagem", "Material", "Outros"])
     }
 )
 
-# 6. ANEXOS E CÁLCULOS
-st.markdown("### 📎 Anexar Comprovantes")
-arquivos = st.file_uploader("Upload de PDFs", accept_multiple_files=True)
+up_files = st.file_uploader("Upload de Comprovantes Fiscais (PDF/Imagens)", accept_multiple_files=True)
 
+# 6. DASHBOARD FINANCEIRO INTEGRADO
 st.divider()
+st.markdown("<div class='section-header'>Consolidação Financeira</div>", unsafe_allow_html=True)
 
-# CÁLCULOS ROBUSTOS
-total_gasto = float(despesas_finais["Valor (R$)"].sum())
-adiantamento = st.number_input("Adiantamento Recebido (R$)", min_value=0.0, value=0.0, step=100.0)
-saldo_final = total_gasto - adiantamento
-status = "REEMBOLSO (Receber)" if saldo_final > 0 else "DEVOLUÇÃO (Sobra)"
+# Cálculos com conversão garantida
+val_gasto = float(grid_dados["Valor"].sum())
 
-col1, col2, col3 = st.columns(3)
-col1.metric("TOTAL GASTO", f"R$ {total_gasto:,.2f}")
-col2.metric("ADIANTAMENTO", f"R$ {adiantamento:,.2f}")
-col3.metric(status, f"R$ {abs(saldo_final):,.2f}", delta="- Saída" if saldo_final > 0 else "+ Sobra")
+col_inp, col_gap = st.columns([1, 2])
+with col_inp:
+    val_adiantamento = st.number_input("Adiantamento Recebido (R$)", min_value=0.0, step=50.0, format="%.2f")
 
-# 7. RELATÓRIO
-if not despesas_finais.empty:
-    tabela_html = despesas_finais.to_html(index=False, border=0)
-    anexos_txt = "".join([f"<li>{a.name}</li>" for a in arquivos]) if arquivos else "Nenhum"
+val_saldo = val_gasto - val_adiantamento
+label_saldo = "REEMBOLSO DEVIDO" if val_saldo > 0 else "SALDO PARA DEVOLUÇÃO"
+
+m1, m2, m3 = st.columns(3)
+m1.metric("GASTO TOTAL", f"R$ {val_gasto:,.2f}")
+m2.metric("ADIANTAMENTO", f"R$ {val_adiantamento:,.2f}")
+m3.metric(label_saldo, f"R$ {abs(val_saldo):,.2f}", 
+          delta="- Saída de Caixa" if val_saldo > 0 else "+ Sobra em Conta",
+          delta_color="normal" if val_saldo <= 0 else "inverse")
+
+# 7. EXPORTAÇÃO EXECUTIVA
+if not grid_dados.empty:
+    html_table = grid_dados.to_html(index=False, border=0, classes='table')
+    lista_comprovantes = ", ".join([f.name for f in up_files]) if up_files else "Nenhum arquivo anexado."
     
-    relatorio = f"""
+    html_doc = f"""
     <html>
-    <body style='font-family: sans-serif; padding: 20px;'>
-        <h1>M e Lopes | Fechamento</h1>
-        <p><b>Responsável:</b> {cliente_ativo} | <b>Data:</b> {datetime.now().strftime('%d/%m/%Y')}</p>
-        <div style='background: #f0f9ff; padding: 15px; border-radius: 10px;'>
-            <b>Gasto:</b> R$ {total_gasto:,.2f} | <b>Adiantamento:</b> R$ {adiantamento:,.2f} | <b>{status}:</b> R$ {abs(saldo_final):,.2f}
+    <head>
+        <style>
+            body {{ font-family: 'Inter', sans-serif; padding: 40px; color: #1e293b; line-height: 1.5; }}
+            .brand {{ font-size: 20pt; font-weight: 700; border-bottom: 2px solid #f1f5f9; padding-bottom: 10px; }}
+            .summary {{ background: #f8fafc; padding: 20px; border-radius: 8px; margin: 20px 0; border: 1px solid #e2e8f0; }}
+            table {{ width: 100%; border-collapse: collapse; margin-top: 20px; }}
+            th {{ text-align: left; background: #f8fafc; padding: 12px; font-size: 9pt; color: #64748b; text-transform: uppercase; }}
+            td {{ padding: 12px; border-bottom: 1px solid #f1f5f9; font-size: 10pt; }}
+            .footer {{ margin-top: 50px; font-size: 8pt; color: #94a3b8; text-align: center; }}
+        </style>
+    </head>
+    <body>
+        <div class="brand">M e Lopes | Intelligence</div>
+        <p><b>Responsável:</b> {responsavel} | <b>Data de Emissão:</b> {datetime.now().strftime('%d/%m/%Y')}</p>
+        <div class="summary">
+            <b>Resumo Executivo:</b><br>
+            Custos Totais: R$ {val_gasto:,.2f} | Adiantamentos: R$ {val_adiantamento:,.2f} | <b>{label_saldo}: R$ {abs(val_saldo):,.2f}</b>
         </div>
-        <br>{tabela_html}
-        <p><b>Comprovantes:</b> {anexos_txt}</p>
+        {html_table}
+        <p style="font-size: 9pt;"><b>Comprovantes Digitais:</b> {lista_comprovantes}</p>
+        <div class="footer">Este documento é um relatório gerencial de uso interno da M e Lopes para G.A Solar.</div>
     </body>
     </html>
     """
     
-    st.download_button("🚀 Gerar PDF/Relatório", data=relatorio, file_name=f"Relatorio_{cliente_ativo}.html", mime="text/html")
+    st.download_button("📂 Gerar Relatório Executivo (HTML)", data=html_doc, file_name=f"FIN_{responsavel}.html", mime="text/html")
+
+st.markdown("<br><p style='text-align:center; color:#cbd5e1; font-size:10px;'>M e Lopes Business Solutions</p>", unsafe_allow_html=True)
