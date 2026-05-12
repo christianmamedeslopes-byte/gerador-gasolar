@@ -71,20 +71,27 @@ if st.button("Importar Dados"):
         df_novo["Valor"] = df_novo["Valor"].apply(lambda x: float(str(x).replace('R$', '').replace('.', '').replace(',', '.').strip()) if isinstance(x, str) else x)
         st.session_state.db_despesas = pd.concat([st.session_state.db_despesas, df_novo], ignore_index=True)
         st.rerun()
-
 # ==========================================
 # 4. EXIBIÇÃO E CÁLCULOS
 # ==========================================
-grid_dados = st.data_editor(st.session_state.db_despesas, num_rows="dynamic", use_container_width=True)
-val_gasto = float(grid_dados["Valor"].sum()) if not grid_dados.empty else 0.0
+# Garante que a base interna seja matemática antes de ir para a tela
+st.session_state.db_despesas["Valor"] = pd.to_numeric(st.session_state.db_despesas["Valor"], errors='coerce').fillna(0.0)
+
+grid_dados = st.data_editor(
+    st.session_state.db_despesas, 
+    num_rows="dynamic", 
+    use_container_width=True,
+    column_config={
+        "Valor": st.column_config.NumberColumn("Valor", format="R$ %.2f", min_value=0.0),
+        "Categoria": st.column_config.SelectboxColumn("Categoria", options=["Combustível", "Alimentação", "Viagem", "Material", "Outros"])
+    }
+)
+
+# Soma blindada: força a conversão matemática da tabela final, ignorando textos
+val_gasto = float(pd.to_numeric(grid_dados["Valor"], errors='coerce').fillna(0.0).sum()) if not grid_dados.empty else 0.0
+
 val_adiantamento = st.number_input("Adiantamento Recebido (R$)", min_value=0.0, step=100.0)
 val_saldo = val_gasto - val_adiantamento
-
-k1, k2, k3 = st.columns(3)
-k1.metric("GASTO TOTAL", f"R$ {formatar_br(val_gasto)}")
-k2.metric("ADIANTAMENTO", f"R$ {formatar_br(val_adiantamento)}")
-k3.metric("SALDO FINAL", f"R$ {formatar_br(abs(val_saldo))}")
-
 # ==========================================
 # 5. MOTOR DE RELATÓRIO E VISUALIZADOR OTIMIZADO
 # ==========================================
