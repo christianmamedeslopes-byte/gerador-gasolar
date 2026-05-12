@@ -40,12 +40,19 @@ if 'clientes' not in st.session_state:
 # 3. FUNÇÕES DE NEGÓCIO (CONTROLLER)
 # ==========================================
 def limpar_valor_monetario(valor):
-    """Garante que qualquer lixo digitado ou colado vire um número perfeito."""
+    """Garante que qualquer lixo digitado vire número, mas ignora o que já é float numérico."""
+    if isinstance(valor, (int, float)):
+        return float(valor)
+        
     try:
         val_str = str(valor).replace('R$', '').replace('.', '').replace(',', '.').strip()
         return float(val_str)
     except:
         return 0.0
+
+def formatar_br(valor):
+    """Converte o float do Python (2500.50) para o padrão visual BR (2.500,50)."""
+    return f"{valor:,.2f}".replace(",", "X").replace(".", ",").replace("X", ".")
 
 def processar_lote_excel(texto_colado):
     """Motor de processamento de dados copiados do Excel."""
@@ -86,7 +93,6 @@ with st.sidebar:
 st.markdown(f"<div class='header-title'>Painel de Auditoria: {responsavel}</div>", unsafe_allow_html=True)
 st.markdown(f"<div class='sub-title'>PIX Registrado: {st.session_state.clientes[responsavel]}</div>", unsafe_allow_html=True)
 
-# Divisão de tarefas em Abas (UI Moderna)
 aba_importacao, aba_manual = st.tabs(["📥 Importação em Lote (Excel)", "✍️ Lançamento Rápido"])
 
 with aba_importacao:
@@ -124,7 +130,7 @@ with aba_manual:
 st.divider()
 st.markdown("### 🔍 Detalhamento e Edição")
 
-# Garante que os valores estão limpos para a exibição
+# Garante limpeza dos valores sem converter em string permanentemente
 st.session_state.db_despesas["Valor"] = st.session_state.db_despesas["Valor"].apply(limpar_valor_monetario)
 
 grid_dados = st.data_editor(
@@ -138,26 +144,25 @@ grid_dados = st.data_editor(
 )
 
 # Inteligência de Negócio (BI)
-val_gasto = float(grid_dados["Valor"].sum())
+val_gasto = float(grid_dados["Valor"].sum()) if not grid_dados.empty else 0.0
 
 col_kpi, col_chart = st.columns([2, 1])
 
 with col_kpi:
-    val_adiantamento = st.number_input("Adiantamento Recebido da G.A Solar (R$)", min_value=0.0, step=100.0)
+    val_adiantamento = st.number_input("Adiantamento Recebido (R$)", min_value=0.0, step=100.0)
     val_saldo = val_gasto - val_adiantamento
     label_saldo = "A REEMBOLSAR (Devido ao Func.)" if val_saldo > 0 else "DEVOLUÇÃO (Sobra em Caixa)"
     
     k1, k2, k3 = st.columns(3)
-    k1.metric("GASTO TOTAL", f"R$ {val_gasto:,.2f}")
-    k2.metric("ADIANTAMENTO", f"R$ {val_adiantamento:,.2f}")
-    k3.metric(label_saldo, f"R$ {abs(val_saldo):,.2f}", 
+    k1.metric("GASTO TOTAL", f"R$ {formatar_br(val_gasto)}")
+    k2.metric("ADIANTAMENTO", f"R$ {formatar_br(val_adiantamento)}")
+    k3.metric(label_saldo, f"R$ {formatar_br(abs(val_saldo))}", 
               delta="- Saída" if val_saldo > 0 else "+ Caixa", 
               delta_color="normal" if val_saldo <= 0 else "inverse")
 
 with col_chart:
     st.markdown("**Distribuição de Custos**")
     if not grid_dados.empty:
-        # Cria um dashboard nativo baseado nas categorias
         resumo_cat = grid_dados.groupby("Categoria")["Valor"].sum().reset_index()
         st.dataframe(
             resumo_cat, 
@@ -182,7 +187,7 @@ if not grid_dados.empty:
     html_table = grid_dados.to_html(index=False, border=0)
     lista_comprovantes = ", ".join([f.name for f in up_files]) if up_files else "Nenhum"
     
-    # Gerador HTML Otimizado
+    # Gerador HTML Otimizado com formatação BRL
     html_doc = f"""
     <html>
     <body style="font-family: 'Inter', sans-serif; padding: 40px; color: #1e293b;">
@@ -190,9 +195,9 @@ if not grid_dados.empty:
         <p><b>Responsável:</b> {responsavel} | <b>Emissão:</b> {datetime.now().strftime('%d/%m/%Y')}</p>
         <div style="background: #f8fafc; padding: 20px; border-radius: 8px; border: 1px solid #e2e8f0; margin-bottom: 20px;">
             <b style="font-size: 16px;">Consolidação Financeira:</b><br><br>
-            Custo Operacional Total: R$ {val_gasto:,.2f} <br>
-            Adiantamento Disponibilizado: R$ {val_adiantamento:,.2f} <br>
-            <b style="color: #0f172a; font-size: 18px;">Resultado Final ({label_saldo}): R$ {abs(val_saldo):,.2f}</b>
+            Custo Operacional Total: R$ {formatar_br(val_gasto)} <br>
+            Adiantamento Disponibilizado: R$ {formatar_br(val_adiantamento)} <br>
+            <b style="color: #0f172a; font-size: 18px;">Resultado Final ({label_saldo}): R$ {formatar_br(abs(val_saldo))}</b>
         </div>
         {html_table}
         <p style="margin-top: 20px; font-size: 12px; color: #64748b;"><b>Comprovantes Analisados:</b> {lista_comprovantes}</p>
@@ -201,7 +206,7 @@ if not grid_dados.empty:
     """
     
     with col_exp1:
-        st.download_button("📄 Emitir Relatório Oficial (HTML/PDF)", data=html_doc, file_name=f"Relatorio_{responsavel}.html", mime="text/html", use_container_width=True)
+        st.download_button("📄 Emitir Relatório Oficial (HTML)", data=html_doc, file_name=f"Relatorio_{responsavel}.html", mime="text/html", use_container_width=True)
     with col_exp2:
         csv_backup = grid_dados.to_csv(index=False).encode('utf-8')
         st.download_button("💾 Backup de Dados (CSV)", data=csv_backup, file_name=f"Backup_{responsavel}.csv", mime="text/csv", use_container_width=True)
