@@ -2,45 +2,66 @@ import streamlit as st
 import pandas as pd
 from datetime import datetime
 
-st.set_page_config(page_title="Gestão de Caixa | M e Lopes", layout="wide")
+# Configuração com tema amplo
+st.set_page_config(page_title="M e Lopes | Cloud Finance", layout="wide")
 
-# --- BANCO DE DADOS TEMPORÁRIO DE CLIENTES ---
+# --- CSS CUSTOMIZADO PARA A INTERFACE STREAMLIT ---
+st.markdown("""
+    <style>
+    .main { background-color: #f8fafc; }
+    .stButton>button { width: 100%; border-radius: 8px; height: 3em; background-color: #0f172a; color: white; border: none; }
+    .stButton>button:hover { background-color: #1e293b; color: #3b82f6; }
+    div[data-testid="stMetricValue"] { font-size: 22px; color: #0f172a; }
+    </style>
+    """, unsafe_allow_stdio=True)
+
+# --- GESTÃO DE ESTADO E CLIENTES ---
 if 'clientes' not in st.session_state:
     st.session_state.clientes = {
         "Wellington Rafael": {"pix": "014.565.671-36", "banco": "Santander"},
-        "G.A Solar (Geral)": {"pix": "CNPJ: 66.283.560/0001-09", "banco": "PJ Bank"}
+        "G.A Solar (Geral)": {"pix": "66.283.560/0001-09", "banco": "PJ Bank"}
     }
 
-# --- BARRA LATERAL (GESTÃO DE CLIENTES) ---
+# --- SIDEBAR MODERNA ---
 with st.sidebar:
-    st.title("M e Lopes")
-    st.subheader("Painel de Controle")
-    
-    # Seleção de Cliente/Obra
-    cliente_selecionado = st.selectbox("Selecione o Cliente/Obra", options=list(st.session_state.clientes.keys()))
-    
+    st.markdown(f"<h1 style='color: #0f172a;'>M e Lopes</h1>", unsafe_allow_stdio=True)
+    st.caption("Assessoria em Tecnologia")
     st.divider()
     
-    # Inclusão de Novo Cliente
-    st.write("### + Incluir Novo Cliente")
-    novo_nome = st.text_input("Nome do Cliente/Func.")
-    novo_pix = st.text_input("Chave PIX")
-    novo_banco = st.text_input("Banco")
+    cliente_selecionado = st.selectbox("🎯 Obra/Cliente Ativo", options=list(st.session_state.clientes.keys()))
     
-    if st.button("Salvar Novo Cliente"):
-        if novo_nome:
-            st.session_state.clientes[novo_nome] = {"pix": novo_pix, "banco": novo_banco}
-            st.success("Cliente adicionado!")
-            st.rerun()
+    with st.expander("➕ Novo Cadastro"):
+        n_nome = st.text_input("Nome")
+        n_pix = st.text_input("PIX")
+        n_banco = st.text_input("Banco")
+        if st.button("Salvar"):
+            if n_nome:
+                st.session_state.clientes[n_nome] = {"pix": n_pix, "banco": n_banco}
+                st.rerun()
 
-# --- INTERFACE PRINCIPAL ---
-st.title(f"Caixa de Obra: {cliente_selecionado}")
-st.info(f"Dados Atuais: {st.session_state.clientes[cliente_selecionado]['banco']} | PIX: {st.session_state.clientes[cliente_selecionado]['pix']}")
+# --- ÁREA PRINCIPAL ---
+col_tit, col_dat = st.columns([3, 1])
+col_tit.title("Caixa de Obra")
+col_dat.markdown(f"<br><p style='text-align:right; color: #64748b;'>{datetime.now().strftime('%d/%m/%Y')}</p>", unsafe_allow_stdio=True)
 
-# 1. ENTRADA DE DADOS
-adiantamento = st.number_input("Valor do Adiantamento (R$)", min_value=0.0, step=100.0)
+with st.container():
+    c1, c2 = st.columns([1, 2])
+    with c1:
+        st.markdown("### 💳 Financeiro")
+        adiantamento = st.number_input("Adiantamento Recebido (R$)", min_value=0.0, step=100.0)
+    with c2:
+        st.markdown("### 📄 Identificação")
+        st.markdown(f"""
+            <div style="background-color: white; padding: 15px; border-radius: 10px; border: 1px solid #e2e8f0;">
+                <strong>Favorecido:</strong> {cliente_selecionado}<br>
+                <strong>Instituição:</strong> {st.session_state.clientes[cliente_selecionado]['banco']} | <strong>PIX:</strong> {st.session_state.clientes[cliente_selecionado]['pix']}
+            </div>
+        """, unsafe_allow_stdio=True)
 
-st.write("### Lançamentos de Despesas")
+st.divider()
+
+# TABELA
+st.markdown("### 📊 Lançamentos")
 if 'despesas' not in st.session_state:
     st.session_state.despesas = pd.DataFrame(columns=["Data", "Objeto", "Valor (R$)", "Centro de Custos"])
 
@@ -49,69 +70,90 @@ despesas_editadas = st.data_editor(
     num_rows="dynamic",
     use_container_width=True,
     column_config={
-        "Valor (R$)": st.column_config.NumberColumn(format="R$ %.2f", min_value=0.0),
-        "Centro de Custos": st.column_config.SelectboxColumn(
-            options=["Vale alimentação", "Combustível", "Canteiro de obras", "Material Elétrico", "Despesas com viagem"]
-        )
+        "Valor (R$)": st.column_config.NumberColumn(format="R$ %.2f"),
+        "Centro de Custos": st.column_config.SelectboxColumn(options=["Alimentação", "Combustível", "Material", "Viagem", "Outros"])
     }
 )
 
-arquivos_anexados = st.file_uploader("Anexar Comprovantes", type=["pdf", "png", "jpg", "jpeg"], accept_multiple_files=True)
+# ANEXOS
+arquivos = st.file_uploader("📎 Digitalizar Comprovantes", accept_multiple_files=True)
 
-# 2. CÁLCULOS
-total_gasto = despesas_editadas["Valor (R$)"].sum()
-saldo = total_gasto - adiantamento
-status_caixa = "CAIXA ZERADO"
-if saldo > 0: status_caixa = f"A REEMBOLSAR: R$ {saldo:,.2f}"
-elif saldo < 0: status_caixa = f"SALDO EM CAIXA: R$ {abs(saldo):,.2f}"
+# CALCULOS
+total = despesas_editadas["Valor (R$)"].sum()
+saldo = total - adiantamento
+status = "REEMBOLSO" if saldo > 0 else "DEVOLUÇÃO"
 
-colA, colB, colC = st.columns(3)
-colA.metric("Total Gasto", f"R$ {total_gasto:,.2f}")
-colB.metric("Adiantamento", f"R$ {adiantamento:,.2f}")
-colC.metric("Resultado", status_caixa)
+# DASHBOARD RESUMO
+st.divider()
+m1, m2, m3 = st.columns(3)
+m1.metric("Gasto Total", f"R$ {total:,.2f}")
+m2.metric("Saldo Inicial", f"R$ {adiantamento:,.2f}")
+m3.metric(status, f"R$ {abs(saldo):,.2f}", delta="- Fluxo" if saldo > 0 else "+ Caixa")
 
-# 3. EXPORTAÇÃO
-tabela_html = despesas_editadas.to_html(index=False, border=1, justify="center")
-lista_anexos = "".join([f"<li>{arq.name}</li>" for arq in arquivos_anexados]) if arquivos_anexados else "Nenhum"
+# --- RELATÓRIO PDF (HTML MODERNO) ---
+tabela_html = despesas_editadas.to_html(index=False, border=0)
+lista_anexos = "".join([f"<li>{a.name}</li>" for a in arquivos]) if arquivos else "Nenhum"
 
 relatorio_html = f"""
 <!DOCTYPE html>
 <html>
 <head>
     <style>
-        body {{ font-family: Arial, sans-serif; padding: 20px; }}
-        .header {{ border-bottom: 2px solid #000; padding-bottom: 10px; margin-bottom: 20px; text-align: center; }}
-        table {{ width: 100%; border-collapse: collapse; margin-top: 15px; }}
-        th {{ background-color: #f2f2f2; padding: 8px; border: 1px solid #ddd; }}
-        td {{ padding: 8px; border: 1px solid #ddd; text-align: center; }}
-        .footer {{ margin-top: 50px; padding-top: 10px; border-top: 1px solid #eee; text-align: center; color: #666; font-size: 10pt; }}
+        @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;700&display=swap');
+        body {{ font-family: 'Inter', sans-serif; color: #1e293b; margin: 0; padding: 40px; background-color: #fff; }}
+        .header {{ display: flex; justify-content: space-between; align-items: center; border-bottom: 2px solid #f1f5f9; padding-bottom: 20px; margin-bottom: 30px; }}
+        .brand {{ color: #0f172a; font-weight: 800; font-size: 20pt; letter-spacing: -1px; }}
+        .badge {{ background-color: #f1f5f9; padding: 5px 12px; border-radius: 15px; font-size: 9pt; font-weight: bold; color: #475569; }}
+        .summary-grid {{ display: grid; grid-template-columns: repeat(3, 1fr); gap: 20px; margin-bottom: 30px; }}
+        .summary-card {{ background-color: #f8fafc; padding: 15px; border-radius: 8px; border: 1px solid #e2e8f0; }}
+        .summary-card small {{ color: #64748b; text-transform: uppercase; font-size: 8pt; font-weight: bold; }}
+        .summary-card div {{ font-size: 14pt; font-weight: bold; margin-top: 5px; }}
+        table {{ width: 100%; border-collapse: collapse; margin-top: 20px; }}
+        th {{ background-color: #f8fafc; color: #64748b; text-align: left; padding: 12px; font-size: 9pt; text-transform: uppercase; border-bottom: 2px solid #e2e8f0; }}
+        td {{ padding: 12px; border-bottom: 1px solid #f1f5f9; font-size: 10pt; }}
+        .footer {{ margin-top: 60px; text-align: center; border-top: 1px solid #f1f5f9; padding-top: 20px; font-size: 9pt; color: #94a3b8; }}
     </style>
 </head>
 <body>
     <div class="header">
-        <h2>CAIXA DE OBRA - {cliente_selecionado.upper()}</h2>
-        <p>G.A SOLAR | Emitido em: {datetime.now().strftime("%d/%m/%Y")}</p>
+        <div class="brand">M e Lopes</div>
+        <div class="badge">Relatório de Fechamento</div>
     </div>
-    <p><strong>PIX:</strong> {st.session_state.clientes[cliente_selecionado]['pix']} | <strong>Banco:</strong> {st.session_state.clientes[cliente_selecionado]['banco']}</p>
-    <p><strong>Adiantamento:</strong> R$ {adiantamento:,.2f}</p>
-    
-    {tabela_html}
-    
-    <h3 style="text-align: right;">Total Gasto: R$ {total_gasto:,.2f}</h3>
-    <h4 style="text-align: right;">{status_caixa}</h4>
-    
-    <div style="font-size: 8pt;"><strong>Anexos:</strong> <ul>{lista_anexos}</ul></div>
-    
+
+    <div style="margin-bottom: 30px;">
+        <h2 style="margin:0; letter-spacing: -0.5px;">Caixa de Obra: {cliente_selecionado}</h2>
+        <p style="color: #64748b; font-size: 10pt;">Processado em {datetime.now().strftime('%d/%m/%Y às %H:%M')}</p>
+    </div>
+
+    <div class="summary-grid">
+        <div class="summary-card">
+            <small>Total de Despesas</small>
+            <div>R$ {total:,.2f}</div>
+        </div>
+        <div class="summary-card">
+            <small>Adiantamento</small>
+            <div>R$ {adiantamento:,.2f}</div>
+        </div>
+        <div class="summary-card" style="border-left: 4px solid #0f172a;">
+            <small>{status}</small>
+            <div style="color: #0f172a;">R$ {abs(saldo):,.2f}</div>
+        </div>
+    </div>
+
+    {tabela_html.replace('class="dataframe"', 'class="table"')}
+
+    <div style="margin-top: 30px;">
+        <p style="font-size: 9pt; font-weight: bold; color: #64748b;">COMPROVANTES ANEXADOS:</p>
+        <ul style="font-size: 9pt; color: #475569;">{lista_anexos}</ul>
+    </div>
+
     <div class="footer">
         <strong>M e Lopes, assessoria em tecnologia</strong><br>
-        Soluções Digitais para Engenharia e Agronegócio
+        Este documento é uma prestação de contas digital gerada via Cloud M e Lopes.
     </div>
 </body>
 </html>
 """
 
-st.download_button("📄 Gerar Relatório M e Lopes", data=relatorio_html, file_name=f"Caixa_{cliente_selecionado}.html", mime="text/html")
-
-# --- RODAPÉ DA PÁGINA ---
-st.markdown("---")
-st.caption("M e Lopes, assessoria em tecnologia")
+st.download_button("🚀 Exportar Relatório Premium", data=relatorio_pdf, file_name=f"Relatorio_{cliente_selecionado}.html", mime="text/html")
+st.markdown("<br><p style='text-align:center; color:#94a3b8; font-size:10px;'>M e Lopes, assessoria em tecnologia</p>", unsafe_allow_stdio=True)
