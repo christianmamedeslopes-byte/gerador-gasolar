@@ -163,34 +163,64 @@ def logo_b64(path="logo.png") -> str | None:
 
 
 def gerar_grafico_pizza(df: pd.DataFrame) -> str | None:
-    """Gráfico de pizza Matplotlib → base64 para embutir no PDF."""
+    """Donut com legenda lateral — sem labels sobrepostos no PDF."""
     if df.empty or "Categoria" not in df.columns:
         return None
-    por_cat = df.groupby("Categoria")["Valor"].sum()
+    por_cat = df.groupby("Categoria")["Valor"].sum().sort_values(ascending=False)
     if por_cat.empty:
         return None
 
-    cores = ["#0f172a", "#1e3a5f", "#1e40af", "#0369a1",
-             "#0891b2", "#059669", "#d97706"]
+    cores = ["#0f172a", "#1e40af", "#0369a1", "#0891b2",
+             "#059669", "#d97706", "#7c3aed"]
+    total = por_cat.sum()
 
-    fig, ax = plt.subplots(figsize=(4.5, 3.2), facecolor="#f8fafc")
-    wedges, texts, autotexts = ax.pie(
+    fig, ax = plt.subplots(figsize=(6.2, 3.2), facecolor="#ffffff")
+    fig.patch.set_facecolor("#ffffff")
+
+    wedges, _, autotexts = ax.pie(
         por_cat.values,
-        labels=por_cat.index,
         autopct="%1.1f%%",
         colors=cores[:len(por_cat)],
-        startangle=140,
-        pctdistance=0.78,
-        textprops={"fontsize": 8, "fontfamily": "DejaVu Sans"}
+        startangle=90,
+        pctdistance=0.75,
+        wedgeprops={"linewidth": 1.5, "edgecolor": "#ffffff"},
+        textprops={"fontsize": 8.5, "fontfamily": "DejaVu Sans"}
     )
     for at in autotexts:
         at.set_color("white")
         at.set_fontweight("bold")
-    ax.set_facecolor("#f8fafc")
-    plt.tight_layout(pad=0.5)
+        at.set_fontsize(8)
+
+    centro = plt.Circle((0, 0), 0.52, color="#ffffff")
+    ax.add_patch(centro)
+    ax.text(0, 0.10, "Total", ha="center", va="center",
+            fontsize=7, color="#64748b", fontfamily="DejaVu Sans")
+    valor_fmt = f"R$ {total:,.2f}".replace(",", "X").replace(".", ",").replace("X", ".")
+    ax.text(0, -0.15, valor_fmt, ha="center", va="center",
+            fontsize=8, fontweight="bold", color="#0f172a",
+            fontfamily="DejaVu Sans")
+
+    legend_labels = []
+    for cat, val in por_cat.items():
+        val_fmt = f"R$ {val:,.2f}".replace(",", "X").replace(".", ",").replace("X", ".")
+        legend_labels.append(f"  {cat}   {val_fmt}  ({val/total*100:.1f}%)")
+
+    ax.legend(
+        wedges, legend_labels,
+        loc="center left",
+        bbox_to_anchor=(1.0, 0.5),
+        fontsize=7.5,
+        frameon=False,
+        labelspacing=1.0,
+        handlelength=1.2,
+        handleheight=1.0,
+    )
+    ax.set_facecolor("#ffffff")
+    plt.tight_layout(pad=0.3)
 
     buf = BytesIO()
-    plt.savefig(buf, format="png", dpi=150, bbox_inches="tight", facecolor="#f8fafc")
+    plt.savefig(buf, format="png", dpi=160,
+                bbox_inches="tight", facecolor="#ffffff")
     plt.close(fig)
     buf.seek(0)
     return base64.b64encode(buf.read()).decode()
@@ -536,12 +566,12 @@ with tab_relatorio:
     cor_saldo     = "#dc2626"      if val_saldo_pdf > 0 else "#059669"
 
     lb64   = logo_b64()
-    logo_h = (f'<img src="data:image/png;base64,{lb64}" height="42">'
-              if lb64 else '<strong style="font-size:18px;color:#0f172a;">M e Lopes</strong>')
+    logo_h = (f'<img src="data:image/png;base64,{lb64}" height="38" style="display:block;">'
+              if lb64 else "")
 
     pizza_b64  = gerar_grafico_pizza(df)
-    pizza_html = (f'<img src="data:image/png;base64,{pizza_b64}" width="300">'
-                  if pizza_b64 else "<p style='color:#64748b;font-size:9px;'>—</p>")
+    pizza_html = (f'<img src="data:image/png;base64,{pizza_b64}" width="340" style="display:block;margin:0 auto;">'
+                  if pizza_b64 else "<p style='color:#64748b;font-size:9px;text-align:center;'>—</p>")
 
     # Tabela de resumo por categoria
     por_cat = df.groupby("Categoria")["Valor"].agg(["sum","count"]).reset_index()
@@ -559,21 +589,21 @@ with tab_relatorio:
     # Linhas de detalhe
     linhas_det = ""
     for i, row in df.iterrows():
-        cls = 'class="zebra"' if i % 2 == 0 else ""
-        linhas_det += f"""<tr {cls}>
+        linhas_det += f"""<tr>
             <td>{row["Data"]}</td>
             <td>{row["Fornecedor"]}</td>
             <td>{row["Objeto"]}</td>
             <td>{row["Categoria"]}</td>
-            <td class="right">R$ {formatar_br(float(row["Valor"]))}</td>
+            <td class="r">R$ {formatar_br(float(row["Valor"]))}</td>
         </tr>"""
 
-    linhas_det += f"""<tr class="total-row">
-        <td colspan="4">TOTAL DAS DESPESAS:</td>
-        <td class="right">R$ {formatar_br(val_gasto_pdf)}</td>
+    linhas_det += f"""<tr class="t-total">
+        <td colspan="4">TOTAL DAS DESPESAS</td>
+        <td>R$ {formatar_br(val_gasto_pdf)}</td>
     </tr>"""
 
-    now_str = datetime.now().strftime("%d/%m/%Y &agrave;s %H:%M")
+    now_str  = datetime.now().strftime("%d/%m/%Y &agrave;s %H:%M")
+    ref_str  = datetime.now().strftime("%m/%Y")
 
     html_pdf = f"""<!DOCTYPE html>
 <html>
@@ -582,158 +612,239 @@ with tab_relatorio:
 <style>
     @page {{
         size: a4 portrait;
-        margin: 1.8cm 1.8cm 2.8cm 1.8cm;
+        margin: 0 0 1.8cm 0;
+        @frame body_frame {{
+            left: 1.7cm; width: 17.6cm;
+            top: 3.2cm; height: 23.5cm;
+        }}
         @frame footer_frame {{
             -pdf-frame-content: footer_content;
-            left: 50pt; width: 512pt; top: 800pt; height: 25pt;
+            left: 1.7cm; width: 17.6cm;
+            top: 27.2cm; height: 0.8cm;
         }}
     }}
-    body {{ font-family: Helvetica, Arial, sans-serif; color: #334155; font-size: 10px; }}
+    body {{
+        font-family: Helvetica, Arial, sans-serif;
+        color: #1e293b;
+        font-size: 9.5px;
+        margin: 0; padding: 0;
+    }}
 
-    /* HEADER */
-    .header {{ width:100%; border-bottom: 3px solid #0f172a; padding-bottom: 12px; margin-bottom: 16px; }}
-    .doc-title {{ font-size:17px; font-weight:bold; color:#0f172a; margin:0 0 2px 0; }}
-    .doc-sub   {{ font-size:9px;  color:#64748b; margin:0; }}
+    /* ── CABEÇALHO ESCURO ── */
+    .hdr-bar {{
+        background: #0f172a;
+        padding: 14px 20px 12px 20px;
+        margin-bottom: 14px;
+    }}
+    .hdr-empresa {{
+        font-size: 15px; font-weight: bold;
+        color: #ffffff; margin: 0 0 1px 0;
+    }}
+    .hdr-sub {{
+        font-size: 8px; color: #94a3b8; margin: 0;
+    }}
+    .hdr-titulo {{
+        font-size: 13px; font-weight: bold;
+        color: #ffffff; text-align: right; margin: 0 0 2px 0;
+    }}
+    .hdr-emissao {{
+        font-size: 8px; color: #94a3b8;
+        text-align: right; margin: 0;
+    }}
 
-    /* KPI */
-    .kpi-box   {{ background:#f1f5f9; border-left:4px solid #0f172a; padding:10px 14px; margin-bottom:16px; }}
-    .kpi-label {{ font-size:8px; color:#64748b; text-transform:uppercase; letter-spacing:.5px; margin-bottom:2px; }}
-    .kpi-value {{ font-size:13px; font-weight:bold; color:#0f172a; }}
+    /* ── KPI CARDS ── */
+    .kpi-wrap {{
+        margin-bottom: 14px;
+    }}
+    .kpi-card {{
+        background: #f8fafc;
+        border: 1px solid #e2e8f0;
+        border-top: 3px solid #0f172a;
+        padding: 8px 10px;
+        vertical-align: top;
+    }}
+    .kpi-label {{
+        font-size: 7.5px; color: #64748b;
+        text-transform: uppercase; letter-spacing: .5px;
+        margin-bottom: 4px;
+    }}
+    .kpi-value {{
+        font-size: 11px; font-weight: bold; color: #0f172a;
+    }}
 
-    /* SECTION */
-    .sec-title {{ font-size:10px; font-weight:bold; color:#0f172a; text-transform:uppercase;
-                  letter-spacing:.5px; border-bottom:1px solid #e2e8f0;
-                  padding-bottom:4px; margin:16px 0 8px 0; }}
+    /* ── TÍTULOS DE SEÇÃO ── */
+    .sec {{
+        font-size: 9px; font-weight: bold; color: #0f172a;
+        text-transform: uppercase; letter-spacing: .6px;
+        background: #e2e8f0;
+        padding: 5px 8px;
+        margin: 14px 0 6px 0;
+    }}
 
-    /* SUMMARY TABLE */
-    .sum-table {{ width:100%; border-collapse:collapse; }}
-    .sum-table th {{ background:#1e40af; color:#fff; padding:6px 8px;
-                     font-size:9px; text-transform:uppercase; text-align:left; }}
-    .sum-table td {{ border-bottom:1px solid #e2e8f0; padding:5px 8px; font-size:10px; }}
+    /* ── TABELA RESUMO ── */
+    .t-resumo {{ width: 100%; border-collapse: collapse; }}
+    .t-resumo th {{
+        background: #1e40af; color: #fff;
+        padding: 5px 8px; font-size: 8.5px;
+        text-transform: uppercase; text-align: left;
+    }}
+    .t-resumo td {{
+        border-bottom: 1px solid #f1f5f9;
+        padding: 4px 8px; font-size: 9px;
+    }}
+    .t-resumo tr:nth-child(even) td {{ background: #f8fafc; }}
 
-    /* DETAIL TABLE */
-    .det-table {{ width:100%; border-collapse:collapse; }}
-    .det-table th {{ background:#0f172a; color:#fff; padding:7px 8px;
-                     font-size:9px; text-transform:uppercase; text-align:left; }}
-    .det-table th.right {{ text-align:right; }}
-    .det-table td {{ border-bottom:1px solid #e2e8f0; padding:6px 8px; font-size:10px; }}
-    .det-table td.right {{ text-align:right; font-weight:600; }}
-    .zebra td   {{ background:#f8fafc; }}
-    .total-row td {{ background:#e2e8f0; font-weight:bold; color:#0f172a;
-                     text-align:right; border-top:2px solid #0f172a;
-                     font-size:11px; padding:8px; }}
+    /* ── TABELA DETALHE ── */
+    .t-det {{ width: 100%; border-collapse: collapse; }}
+    .t-det th {{
+        background: #0f172a; color: #fff;
+        padding: 5px 7px; font-size: 8px;
+        text-transform: uppercase; text-align: left;
+    }}
+    .t-det th.r {{ text-align: right; }}
+    .t-det td {{
+        border-bottom: 1px solid #f1f5f9;
+        padding: 4px 7px; font-size: 8.5px;
+    }}
+    .t-det td.r {{ text-align: right; font-weight: 600; }}
+    .t-det tr:nth-child(even) td {{ background: #f8fafc; }}
+    .t-total td {{
+        background: #0f172a !important;
+        color: #fff; font-weight: bold;
+        font-size: 9.5px; padding: 6px 7px;
+        text-align: right;
+        border-top: 2px solid #0f172a;
+    }}
+    .t-total td:first-child {{ text-align: left; }}
 
-    /* SALDO */
-    .saldo-box   {{ border:2px solid {cor_saldo}; padding:10px 14px; margin-top:14px; }}
-    .saldo-label {{ font-size:8px; color:#64748b; text-transform:uppercase; margin-bottom:4px; }}
-    .saldo-value {{ font-size:16px; font-weight:bold; color:{cor_saldo}; }}
+    /* ── RODAPÉ SALDO ── */
+    .saldo-bloco {{
+        border-left: 4px solid {cor_saldo};
+        background: #f8fafc;
+        padding: 10px 14px;
+        margin-top: 12px;
+    }}
+    .saldo-lbl {{ font-size: 7.5px; color: #64748b; text-transform: uppercase; }}
+    .saldo-val {{ font-size: 15px; font-weight: bold; color: {cor_saldo}; }}
+    .saldo-adiant {{
+        font-size: 10px; font-weight: 600;
+        color: #0f172a; margin: 2px 0 8px 0;
+    }}
 
-    /* FOOTER */
-    #footer_content {{ text-align:center; font-size:8px; color:#94a3b8;
-                        border-top:1px solid #e2e8f0; padding-top:7px; }}
+    /* ── ASSINATURA ── */
+    .ass-linha {{
+        border-top: 1px solid #334155;
+        padding-top: 5px;
+        text-align: center;
+        font-size: 8.5px; color: #64748b;
+        width: 200px;
+    }}
+
+    /* ── FOOTER ── */
+    #footer_content {{
+        text-align: center; font-size: 7.5px; color: #94a3b8;
+        border-top: 1px solid #e2e8f0; padding-top: 5px;
+    }}
 </style>
 </head>
 <body>
 
 <div id="footer_content">
-    M e Lopes Assessoria em Tecnologia &nbsp;|&nbsp; {now_str} &nbsp;|&nbsp; Documento n&atilde;o fiscal
+    M e Lopes Assessoria em Tecnologia &nbsp;&bull;&nbsp;
+    {now_str} &nbsp;&bull;&nbsp; Documento n&atilde;o fiscal
 </div>
 
-<!-- CABEÇALHO -->
-<table class="header">
+<!-- ══ CABEÇALHO ══ -->
+<table class="hdr-bar" width="100%">
     <tr>
-        <td style="width:50%;vertical-align:middle;">{logo_h}</td>
-        <td style="width:50%;vertical-align:middle;text-align:right;">
-            <p class="doc-title">Presta&ccedil;&atilde;o de Contas &mdash; Caixa de Obra</p>
-            <p class="doc-sub">Emiss&atilde;o: {now_str} &nbsp;|&nbsp; Ref: {datetime.now().strftime("%m/%Y")}</p>
+        <td style="vertical-align:middle; width:50%;">
+            {logo_h}
+            <p class="hdr-empresa" style="{'display:none' if lb64 else ''}">M e Lopes</p>
+            <p class="hdr-sub">Assessoria em Tecnologia</p>
+        </td>
+        <td style="vertical-align:middle; width:50%;">
+            <p class="hdr-titulo">Presta&ccedil;&atilde;o de Contas &mdash; Caixa de Obra</p>
+            <p class="hdr-emissao">Emiss&atilde;o: {now_str} &nbsp;|&nbsp; Ref: {ref_str}</p>
         </td>
     </tr>
 </table>
 
-<!-- KPIs -->
-<div class="kpi-box">
-    <table width="100%">
-        <tr>
-            <td width="25%">
-                <div class="kpi-label">Respons&aacute;vel</div>
-                <div class="kpi-value">{responsavel}</div>
-            </td>
-            <td width="25%">
-                <div class="kpi-label">Documento</div>
-                <div class="kpi-value">{clientes[responsavel]}</div>
-            </td>
-            <td width="25%">
-                <div class="kpi-label">Total de Registros</div>
-                <div class="kpi-value">{len(df)}</div>
-            </td>
-            <td width="25%">
-                <div class="kpi-label">Gasto Total</div>
-                <div class="kpi-value">R$ {formatar_br(val_gasto_pdf)}</div>
-            </td>
-        </tr>
-    </table>
-</div>
+<!-- ══ KPI CARDS ══ -->
+<table class="kpi-wrap" width="100%" style="border-collapse:separate; border-spacing:6px 0;">
+    <tr>
+        <td class="kpi-card" width="25%">
+            <div class="kpi-label">Respons&aacute;vel</div>
+            <div class="kpi-value" style="font-size:10px;">{responsavel}</div>
+        </td>
+        <td class="kpi-card" width="25%">
+            <div class="kpi-label">Documento</div>
+            <div class="kpi-value" style="font-size:10px;">{clientes[responsavel]}</div>
+        </td>
+        <td class="kpi-card" width="25%">
+            <div class="kpi-label">Registros</div>
+            <div class="kpi-value">{len(df)}</div>
+        </td>
+        <td class="kpi-card" width="25%">
+            <div class="kpi-label">Gasto Total</div>
+            <div class="kpi-value">R$ {formatar_br(val_gasto_pdf)}</div>
+        </td>
+    </tr>
+</table>
 
-<!-- RESUMO + GRÁFICO -->
-<p class="sec-title">Resumo por Categoria</p>
+<!-- ══ RESUMO POR CATEGORIA ══ -->
+<div class="sec">Resumo por Categoria</div>
 <table width="100%">
     <tr>
-        <td width="55%" style="vertical-align:top; padding-right:14px;">
-            <table class="sum-table">
+        <td width="42%" style="vertical-align:top; padding-right:10px;">
+            <table class="t-resumo">
                 <thead>
                     <tr>
                         <th>Categoria</th>
-                        <th style="text-align:center">Qtd.</th>
-                        <th style="text-align:right">Total</th>
-                        <th style="text-align:right">%</th>
+                        <th style="text-align:center; width:40px;">Qtd.</th>
+                        <th style="text-align:right;">Total</th>
+                        <th style="text-align:right; width:36px;">%</th>
                     </tr>
                 </thead>
-                <tbody>
-                    {linhas_cat}
-                </tbody>
+                <tbody>{linhas_cat}</tbody>
             </table>
         </td>
-        <td width="45%" style="vertical-align:middle;text-align:center;">
+        <td width="58%" style="vertical-align:middle; text-align:center;">
             {pizza_html}
         </td>
     </tr>
 </table>
 
-<!-- DETALHAMENTO -->
-<p class="sec-title">Detalhamento das Despesas</p>
-<table class="det-table">
+<!-- ══ DETALHAMENTO ══ -->
+<div class="sec">Detalhamento das Despesas</div>
+<table class="t-det">
     <thead>
         <tr>
-            <th style="width:12%">Data</th>
-            <th style="width:28%">Fornecedor</th>
-            <th style="width:25%">Objeto</th>
-            <th style="width:15%">Categoria</th>
-            <th class="right" style="width:15%">Valor</th>
+            <th style="width:11%">Data</th>
+            <th style="width:30%">Fornecedor</th>
+            <th style="width:26%">Objeto</th>
+            <th style="width:14%">Categoria</th>
+            <th class="r" style="width:13%">Valor</th>
         </tr>
     </thead>
-    <tbody>
-        {linhas_det}
-    </tbody>
+    <tbody>{linhas_det}</tbody>
 </table>
 
-<!-- SALDO + ASSINATURA -->
-<table width="100%" style="margin-top:14px;">
+<!-- ══ SALDO + ASSINATURA ══ -->
+<table width="100%" style="margin-top:12px;">
     <tr>
-        <td width="50%" style="vertical-align:top;">
-            <div class="saldo-box">
-                <div class="saldo-label">Adiantamento Recebido</div>
-                <div style="font-size:12px;font-weight:600;color:#0f172a;margin:2px 0 10px 0;">
-                    R$ {formatar_br(val_adiantamento_pdf)}
-                </div>
-                <div class="saldo-label">{label_saldo}</div>
-                <div class="saldo-value">R$ {formatar_br(abs(val_saldo_pdf))}</div>
+        <td width="55%" style="vertical-align:top;">
+            <div class="saldo-bloco">
+                <div class="saldo-lbl">Adiantamento Recebido</div>
+                <div class="saldo-adiant">R$ {formatar_br(val_adiantamento_pdf)}</div>
+                <div class="saldo-lbl">{label_saldo}</div>
+                <div class="saldo-val">R$ {formatar_br(abs(val_saldo_pdf))}</div>
             </div>
         </td>
-        <td width="50%" style="text-align:center;vertical-align:bottom;padding-bottom:4px;">
-            <div style="margin-top:50px;display:inline-block;width:210px;
-                        border-top:1px solid #334155;padding-top:6px;
-                        font-size:9px;color:#64748b;text-align:center;">
-                {responsavel}<br/>Respons&aacute;vel pelo Caixa
+        <td width="45%" style="text-align:center; vertical-align:bottom; padding-bottom:2px;">
+            <div style="margin-top:44px;">
+                <div class="ass-linha">
+                    {responsavel}<br/>Respons&aacute;vel pelo Caixa
+                </div>
             </div>
         </td>
     </tr>
