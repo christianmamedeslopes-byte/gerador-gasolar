@@ -86,22 +86,37 @@ k2.metric("ADIANTAMENTO", f"R$ {formatar_br(val_adiantamento)}")
 k3.metric("SALDO FINAL", f"R$ {formatar_br(abs(val_saldo))}")
 
 # ==========================================
-# 5. MOTOR DE RELATÓRIO PROFISSIONAL
+# 5. MOTOR DE RELATÓRIO E VISUALIZADOR OTIMIZADO
 # ==========================================
 st.divider()
-st.markdown("### 📄 Geração de Relatório")
+st.markdown("### 📄 Geração de Relatório e Anexos")
+
+# 1. Upload Rápido (Armazena em memória sem renderizar)
 up_files = st.file_uploader("Anexar Comprovantes para Conferência", accept_multiple_files=True)
 
+# 2. Visualizador Lazy Loading (Carregamento Preguiçoso)
+if up_files:
+    st.success(f"✅ {len(up_files)} arquivo(s) em memória.")
+    arquivo_selecionado = st.selectbox("Selecione um comprovante para auditar na tela:", [f.name for f in up_files])
+    
+    for file in up_files:
+        if file.name == arquivo_selecionado:
+            if file.type == "application/pdf":
+                base64_pdf = base64.b64encode(file.getvalue()).decode('utf-8')
+                pdf_display = f'<iframe src="data:application/pdf;base64,{base64_pdf}" width="100%" height="400" type="application/pdf"></iframe>'
+                st.markdown(pdf_display, unsafe_allow_html=True)
+            else:
+                st.image(file, use_column_width=True)
+
+# 3. Geração do Relatório PDF Corrigido
 if not grid_dados.empty:
-    # Preparação da Logo
-    logo_b64 = converter_imagem_base64("logo.png") # Certifique-se de ter o arquivo logo.png
+    logo_b64 = converter_imagem_base64("logo.png") 
     logo_html = f'<img src="data:image/png;base64,{logo_b64}" width="150">' if logo_b64 else "<h2>M e Lopes</h2>"
 
-    # Estilo CSS para o PDF (xhtml2pdf)
     css_pdf = """
         <style>
             @page { size: a4; margin: 2cm; }
-            body { font-family: Helvetica, Arial, sans-serif; color: #333; line-height: 1.4; }
+            body { font-family: Helvetica, sans-serif; color: #333; line-height: 1.4; }
             .header { border-bottom: 2px solid #0f172a; padding-bottom: 10px; margin-bottom: 20px; }
             .title { font-size: 22px; font-weight: bold; color: #0f172a; }
             .summary-box { background-color: #f8fafc; border: 1px solid #e2e8f0; padding: 15px; margin-bottom: 20px; }
@@ -113,7 +128,6 @@ if not grid_dados.empty:
         </style>
     """
 
-    # Construção das linhas da tabela com efeito zebra
     rows_html = ""
     for i, row in grid_dados.iterrows():
         classe = 'class="zebra"' if i % 2 == 0 else ""
@@ -127,9 +141,14 @@ if not grid_dados.empty:
             </tr>
         """
 
+    # Tag meta charset adicionada para forçar a renderização correta de acentos latinos
     html_final = f"""
+    <!DOCTYPE html>
     <html>
-        <head>{css_pdf}</head>
+        <head>
+            <meta charset="UTF-8">
+            {css_pdf}
+        </head>
         <body>
             <div class="header">
                 <table style="border: none;">
@@ -173,5 +192,7 @@ if not grid_dados.empty:
     """
 
     pdf_bytes = gerar_pdf_profissional(html_final)
+    
+    st.markdown("<br>", unsafe_allow_html=True)
     if pdf_bytes:
         st.download_button("📥 Baixar Relatório Profissional (PDF)", data=pdf_bytes, file_name=f"Relatorio_Caixa_{responsavel}.pdf", mime="application/pdf", use_container_width=True)
