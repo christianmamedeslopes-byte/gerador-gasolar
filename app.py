@@ -61,16 +61,16 @@ with st.sidebar:
         st.session_state.db_despesas = pd.DataFrame(columns=["Data", "Fornecedor", "Objeto", "Valor", "Categoria"])
         st.rerun()
 
-# Painel de Lançamentos (Simplificado para o exemplo)
+# Painel de Lançamentos
 st.markdown(f"### Painel: {responsavel}")
 raw_input = st.text_area("Importação Rápida (Cole do Excel):", height=100)
 if st.button("Importar Dados"):
     if raw_input:
         df_novo = pd.read_csv(io.StringIO(raw_input), sep='\t', names=["Data", "Fornecedor", "Objeto", "Valor", "Categoria"])
-        # Limpeza rápida de valores
         df_novo["Valor"] = df_novo["Valor"].apply(lambda x: float(str(x).replace('R$', '').replace('.', '').replace(',', '.').strip()) if isinstance(x, str) else x)
         st.session_state.db_despesas = pd.concat([st.session_state.db_despesas, df_novo], ignore_index=True)
         st.rerun()
+
 # ==========================================
 # 4. EXIBIÇÃO E CÁLCULOS
 # ==========================================
@@ -87,21 +87,22 @@ grid_dados = st.data_editor(
     }
 )
 
-# Soma blindada: força a conversão matemática da tabela final, ignorando textos
+# Soma blindada
 val_gasto = float(pd.to_numeric(grid_dados["Valor"], errors='coerce').fillna(0.0).sum()) if not grid_dados.empty else 0.0
 
 val_adiantamento = st.number_input("Adiantamento Recebido (R$)", min_value=0.0, step=100.0)
 val_saldo = val_gasto - val_adiantamento
+
 # ==========================================
 # 5. MOTOR DE RELATÓRIO E VISUALIZADOR OTIMIZADO
 # ==========================================
 st.divider()
 st.markdown("### 📄 Geração de Relatório e Anexos")
 
-# 1. Upload Rápido (Armazena em memória sem renderizar)
+# 1. Upload Rápido
 up_files = st.file_uploader("Anexar Comprovantes para Conferência", accept_multiple_files=True)
 
-# 2. Visualizador Lazy Loading (Carregamento Preguiçoso)
+# 2. Visualizador Lazy Loading
 if up_files:
     st.success(f"✅ {len(up_files)} arquivo(s) em memória.")
     arquivo_selecionado = st.selectbox("Selecione um comprovante para auditar na tela:", [f.name for f in up_files])
@@ -115,12 +116,11 @@ if up_files:
             else:
                 st.image(file, use_column_width=True)
 
-# 3. Geração do Relatório PDF Corrigido e Modernizado
+# 3. Geração do Relatório PDF Modernizado com Totalizador
 if not grid_dados.empty:
     logo_b64 = converter_imagem_base64("logo.png") 
     logo_html = f'<img src="data:image/png;base64,{logo_b64}" height="45">' if logo_b64 else "<h2 style='color: #0f172a; margin: 0;'>M e Lopes</h2>"
 
-    # CSS Padrão Executivo / Fintech
     css_pdf = """
         <style>
             @page {
@@ -147,6 +147,7 @@ if not grid_dados.empty:
             .data-table td { border-bottom: 1px solid #e2e8f0; padding: 8px; font-size: 10px; }
             .data-table td.right { text-align: right; font-weight: bold; }
             .zebra { background-color: #f1f5f9; }
+            .total-row td { background-color: #e2e8f0; font-weight: bold; color: #0f172a; text-align: right; border-top: 2px solid #0f172a; }
             
             #footer_content { text-align: center; font-size: 9px; color: #94a3b8; border-top: 1px solid #e2e8f0; padding-top: 10px; }
         </style>
@@ -164,6 +165,14 @@ if not grid_dados.empty:
                 <td class="right">R$ {formatar_br(row['Valor'])}</td>
             </tr>
         """
+    
+    # Injeção da Linha de Totais no HTML
+    rows_html += f"""
+            <tr class="total-row">
+                <td colspan="4">TOTAL DAS DESPESAS:</td>
+                <td class="right">R$ {formatar_br(val_gasto)}</td>
+            </tr>
+    """
 
     html_final = f"""
     <!DOCTYPE html>
