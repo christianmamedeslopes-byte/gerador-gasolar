@@ -89,7 +89,6 @@ def get_clientes() -> dict:
         df = pd.read_sql("SELECT nome, documento FROM clientes ORDER BY nome", conn)
     return dict(zip(df["nome"], df["documento"]))
 
-
 def add_cliente(nome: str, documento: str) -> bool:
     try:
         with sqlite3.connect(DB_PATH) as conn:
@@ -97,7 +96,6 @@ def add_cliente(nome: str, documento: str) -> bool:
         return True
     except sqlite3.IntegrityError:
         return False
-
 
 def get_despesas(responsavel: str) -> pd.DataFrame:
     with sqlite3.connect(DB_PATH) as conn:
@@ -118,7 +116,6 @@ def get_despesas(responsavel: str) -> pd.DataFrame:
     df["Valor"] = pd.to_numeric(df["Valor"], errors="coerce").fillna(0.0)
     return df
 
-
 def add_despesa(responsavel, data, fornecedor, objeto, valor, categoria):
     with sqlite3.connect(DB_PATH) as conn:
         conn.execute(
@@ -126,11 +123,9 @@ def add_despesa(responsavel, data, fornecedor, objeto, valor, categoria):
             (responsavel, str(data), fornecedor, objeto, float(valor), categoria)
         )
 
-
 def delete_despesas(ids: list):
     with sqlite3.connect(DB_PATH) as conn:
         conn.executemany("DELETE FROM despesas WHERE id=?", [(i,) for i in ids])
-
 
 def import_bulk(responsavel: str, df_import: pd.DataFrame):
     with sqlite3.connect(DB_PATH) as conn:
@@ -140,7 +135,6 @@ def import_bulk(responsavel: str, df_import: pd.DataFrame):
                 (responsavel, str(row["Data"]), str(row["Fornecedor"]),
                  str(row["Objeto"]), float(row["Valor"]), str(row.get("Categoria", "Outros")))
             )
-
 
 def purgar_responsavel(responsavel: str):
     with sqlite3.connect(DB_PATH) as conn:
@@ -153,14 +147,12 @@ def purgar_responsavel(responsavel: str):
 def formatar_br(valor: float) -> str:
     return f"{valor:,.2f}".replace(",", "X").replace(".", ",").replace("X", ".")
 
-
 def logo_b64(path="logo.png") -> str | None:
     try:
         with open(path, "rb") as f:
             return base64.b64encode(f.read()).decode()
     except Exception:
         return None
-
 
 def gerar_grafico_pizza(df: pd.DataFrame) -> str | None:
     """Donut com legenda lateral — sem labels sobrepostos no PDF."""
@@ -218,12 +210,10 @@ def gerar_grafico_pizza(df: pd.DataFrame) -> str | None:
     buf.seek(0)
     return base64.b64encode(buf.read()).decode()
 
-
 def gerar_pdf(html_content: str) -> bytes | None:
     result = BytesIO()
     pdf = pisa.pisaDocument(BytesIO(html_content.encode("UTF-8")), result)
     return result.getvalue() if not pdf.err else None
-
 
 def uploads_para_b64_png(arquivos: list) -> list[dict]:
     resultado = []
@@ -261,40 +251,33 @@ def uploads_para_b64_png(arquivos: list) -> list[dict]:
 
     return resultado
 
-
 def montar_html_comprovantes(uploads_info: list[dict]) -> str:
     if not uploads_info:
         return ""
-
+    
     blocos = []
     for item in uploads_info:
         if not item["paginas"]:
             blocos.append(f"""
-                <div style="page-break-before:always; padding:20px;">
-                    <p class="sec-title">Comprovante: {item["nome"]}</p>
-                    <p style="color:#dc2626; font-size:10px;">
-                        &#9888; N&atilde;o foi poss&iacute;vel renderizar este arquivo.<br/>
-                        Instale <strong>PyMuPDF</strong> (<code>pip install pymupdf</code>)
-                        para suporte a PDF.
-                    </p>
-                </div>""")
+            <pdf:nextpage />
+            <h3>Comprovante: {item["nome"]}</h3>
+            <p>⚠ Não foi possível renderizar este arquivo.</p>
+            """)
             continue
-
+            
         for i, b64 in enumerate(item["paginas"]):
-            pg_label = f" — p&aacute;g. {i+1}" if len(item["paginas"]) > 1 else ""
+            pg_label = f" — pág. {i+1}" if len(item["paginas"]) > 1 else ""
+            
+            # A tag <pdf:nextpage /> é o segredo mágico do xhtml2pdf para pular de página!
             blocos.append(f"""
-                <div style="page-break-before:always; text-align:center; padding:10px 0;">
-                    <p class="sec-title" style="text-align:left;">
-                        Comprovante: {item["nome"]}{pg_label}
-                    </p>
-                    <img src="data:image/png;base64,{b64}"
-                         style="max-width:100%; max-height:700px;
-                                border:1px solid #e2e8f0; border-radius:4px;">
-                </div>""")
-
-    if not blocos:
-        return ""
-
+            <pdf:nextpage />
+            <div style="margin-top: 20px;">
+                <h4 style="color: #0f172a; font-size: 14px;">Comprovante: {item["nome"]}{pg_label}</h4>
+                <br>
+                <img src="data:image/png;base64,{b64}" style="width: 16cm;">
+            </div>
+            """)
+            
     return "\n".join(blocos)
 
 # ==========================================
@@ -489,7 +472,23 @@ with tab_dashboard:
 # ABA 3 — RELATÓRIO PDF
 # ==========================================
 with tab_relatorio:
-    df = get_despesas(responsavel)
+    # --- NOVO: FILTRO DE DATA ---
+    df_bd = get_despesas(responsavel)
+    
+    st.markdown("#### Filtro do Relatório")
+    col_data1, col_data2 = st.columns(2)
+    with col_data1:
+        data_inicio = st.date_input("Data Inicial", value=date.today().replace(day=1))
+    with col_data2:
+        data_fim = st.date_input("Data Final", value=date.today())
+        
+    if not df_bd.empty:
+        # Converte a coluna Data do banco para o formato de data e filtra
+        df_bd["Data_fmt"] = pd.to_datetime(df_bd["Data"], errors="coerce").dt.date
+        df = df_bd[(df_bd["Data_fmt"] >= data_inicio) & (df_bd["Data_fmt"] <= data_fim)].copy()
+    else:
+        df = df_bd.copy()
+    # -----------------------------
 
     val_adiantamento_pdf = st.number_input(
         "💰 Adiantamento para o Relatório (R$)", min_value=0.0, step=100.0, key="adiant_pdf"
@@ -532,7 +531,7 @@ with tab_relatorio:
     st.divider()
 
     if df.empty:
-        st.info("Lance despesas na aba **Lançamentos** para gerar o relatório.")
+        st.info("Nenhuma despesa neste período. Altere as datas ou lance despesas na aba Lançamentos para gerar o relatório.")
         st.stop()
 
     val_gasto_pdf = float(df["Valor"].sum())
@@ -575,7 +574,7 @@ with tab_relatorio:
         <td>R$ {formatar_br(val_gasto_pdf)}</td>
     </tr>"""
 
-    now_str  = datetime.now().strftime("%d/%m/%Y &agrave;s %H:%M")
+    now_str  = datetime.now().strftime("%d/%m/%Y às %H:%M")
     ref_str  = datetime.now().strftime("%m/%Y")
 
     html_pdf = f"""<!DOCTYPE html>
@@ -725,7 +724,7 @@ with tab_relatorio:
 
 <div id="footer_content">
     M e Lopes Assessoria em Tecnologia &nbsp;&bull;&nbsp;
-    {now_str} &nbsp;&bull;&nbsp; Documento n&atilde;o fiscal
+    {now_str} &nbsp;&bull;&nbsp; Documento não fiscal
 </div>
 
 <table class="hdr-bar" width="100%">
@@ -736,8 +735,8 @@ with tab_relatorio:
             <p class="hdr-sub">Assessoria em Tecnologia</p>
         </td>
         <td style="vertical-align:middle; width:50%;">
-            <p class="hdr-titulo">Presta&ccedil;&atilde;o de Contas &mdash; Caixa de Obra</p>
-            <p class="hdr-emissao">Emiss&atilde;o: {now_str} &nbsp;|&nbsp; Ref: {ref_str}</p>
+            <p class="hdr-titulo">Prestação de Contas — Caixa de Obra</p>
+            <p class="hdr-emissao">Emissão: {now_str} &nbsp;|&nbsp; Ref: {ref_str}</p>
         </td>
     </tr>
 </table>
@@ -745,7 +744,7 @@ with tab_relatorio:
 <table class="kpi-wrap" width="100%" style="border-collapse:separate; border-spacing:6px 0;">
     <tr>
         <td class="kpi-card" width="25%">
-            <div class="kpi-label">Respons&aacute;vel</div>
+            <div class="kpi-label">Responsável</div>
             <div class="kpi-value" style="font-size:10px;">{responsavel}</div>
         </td>
         <td class="kpi-card" width="25%">
@@ -753,11 +752,11 @@ with tab_relatorio:
             <div class="kpi-value" style="font-size:10px;">{clientes[responsavel]}</div>
         </td>
         <td class="kpi-card" width="25%">
-            <div class="kpi-label">Registros</div>
+            <div class="kpi-label">Registros no Período</div>
             <div class="kpi-value">{len(df)}</div>
         </td>
         <td class="kpi-card" width="25%">
-            <div class="kpi-label">Gasto Total</div>
+            <div class="kpi-label">Gasto Total no Período</div>
             <div class="kpi-value">R$ {formatar_br(val_gasto_pdf)}</div>
         </td>
     </tr>
@@ -812,7 +811,7 @@ with tab_relatorio:
         <td width="45%" style="text-align:center; vertical-align:bottom; padding-bottom:2px;">
             <div style="margin-top:44px;">
                 <div class="ass-linha">
-                    {responsavel}<br/>Respons&aacute;vel pelo Caixa
+                    {responsavel}<br/>Responsável pelo Caixa
                 </div>
             </div>
         </td>
