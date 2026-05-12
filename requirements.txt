@@ -1,5 +1,7 @@
-streamlit>=1.30.0
-pandas>=2.0.0
-xhtml2pdf>=0.2.11
-reportlab>=4.0.0
-html5lib>=1.1
+streamlit
+pandas
+xhtml2pdf
+plotly
+matplotlib
+pillow
+pymupdf
