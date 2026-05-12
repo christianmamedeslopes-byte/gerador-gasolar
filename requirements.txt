@@ -1,7 +1,7 @@
 streamlit
 pandas
+matplotlib
 xhtml2pdf
 plotly
-matplotlib
-pillow
-pymupdf
+Pillow
+PyMuPDF
