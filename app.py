@@ -10,6 +10,13 @@ import matplotlib.pyplot as plt
 from io import BytesIO
 from xhtml2pdf import pisa
 import plotly.express as px
+from PIL import Image
+
+try:
+    import fitz  # PyMuPDF — converte páginas de PDF em imagem
+    PYMUPDF_OK = True
+except ImportError:
+    PYMUPDF_OK = False
 
 # ==========================================
 # 1. CONFIGURAÇÃO DA PÁGINA
@@ -193,6 +200,88 @@ def gerar_pdf(html_content: str) -> bytes | None:
     result = BytesIO()
     pdf = pisa.pisaDocument(BytesIO(html_content.encode("UTF-8")), result)
     return result.getvalue() if not pdf.err else None
+
+
+def uploads_para_b64_png(arquivos: list) -> list[dict]:
+    """
+    Recebe lista de UploadedFile do Streamlit.
+    Retorna lista de dicts: {"nome": str, "paginas": [b64_png, ...]}.
+    - Imagens → 1 página
+    - PDFs    → 1 página por página do PDF (requer PyMuPDF)
+    """
+    resultado = []
+    for arquivo in arquivos:
+        nome = arquivo.name
+        raw  = arquivo.read()
+        paginas: list[str] = []
+
+        if arquivo.type == "application/pdf":
+            if PYMUPDF_OK:
+                try:
+                    doc = fitz.open(stream=raw, filetype="pdf")
+                    for num_pag in range(len(doc)):
+                        pag  = doc[num_pag]
+                        mat  = fitz.Matrix(2.0, 2.0)   # 2× zoom → ~150 dpi
+                        pix  = pag.get_pixmap(matrix=mat, alpha=False)
+                        img_bytes = pix.tobytes("png")
+                        paginas.append(base64.b64encode(img_bytes).decode())
+                    doc.close()
+                except Exception as e:
+                    paginas = []   # falhou silenciosamente
+            else:
+                paginas = []   # PyMuPDF não instalado
+        else:
+            # Qualquer imagem suportada pelo Pillow
+            try:
+                img = Image.open(BytesIO(raw)).convert("RGB")
+                buf = BytesIO()
+                img.save(buf, format="PNG")
+                buf.seek(0)
+                paginas.append(base64.b64encode(buf.read()).decode())
+            except Exception:
+                paginas = []
+
+        resultado.append({"nome": nome, "paginas": paginas})
+
+    return resultado
+
+
+def montar_html_comprovantes(uploads_info: list[dict]) -> str:
+    """Gera o bloco HTML dos comprovantes para embutir no PDF."""
+    if not uploads_info:
+        return ""
+
+    blocos = []
+    for item in uploads_info:
+        if not item["paginas"]:
+            # Arquivo não pôde ser convertido
+            blocos.append(f"""
+                <div style="page-break-before:always; padding:20px;">
+                    <p class="sec-title">Comprovante: {item["nome"]}</p>
+                    <p style="color:#dc2626; font-size:10px;">
+                        &#9888; N&atilde;o foi poss&iacute;vel renderizar este arquivo.<br/>
+                        Instale <strong>PyMuPDF</strong> (<code>pip install pymupdf</code>)
+                        para suporte a PDF.
+                    </p>
+                </div>""")
+            continue
+
+        for i, b64 in enumerate(item["paginas"]):
+            pg_label = f" — p&aacute;g. {i+1}" if len(item["paginas"]) > 1 else ""
+            blocos.append(f"""
+                <div style="page-break-before:always; text-align:center; padding:10px 0;">
+                    <p class="sec-title" style="text-align:left;">
+                        Comprovante: {item["nome"]}{pg_label}
+                    </p>
+                    <img src="data:image/png;base64,{b64}"
+                         style="max-width:100%; max-height:700px;
+                                border:1px solid #e2e8f0; border-radius:4px;">
+                </div>""")
+
+    if not blocos:
+        return ""
+
+    return "\n".join(blocos)
 
 # ==========================================
 # 4. SIDEBAR
@@ -398,22 +487,41 @@ with tab_relatorio:
     )
 
     up_files = st.file_uploader(
-        "📎 Anexar Comprovantes para Conferência", accept_multiple_files=True
+        "📎 Anexar Comprovantes (serão incluídos no PDF)",
+        accept_multiple_files=True,
+        type=["pdf", "png", "jpg", "jpeg", "webp"]
     )
+
+    uploads_info: list[dict] = []
+
     if up_files:
-        st.success(f"✅ {len(up_files)} arquivo(s) em memória.")
-        sel_file = st.selectbox("Auditar comprovante:", [f.name for f in up_files])
+        # Aviso sobre suporte a PDF
+        if any(f.type == "application/pdf" for f in up_files) and not PYMUPDF_OK:
+            st.warning(
+                "⚠️ Comprovantes PDF detectados, mas **PyMuPDF** não está instalado. "
+                "Execute `pip install pymupdf` para renderizá-los no relatório. "
+                "Imagens (JPG/PNG) funcionam normalmente."
+            )
+
+        st.success(f"✅ {len(up_files)} arquivo(s) carregado(s) — serão embutidos no PDF.")
+
+        # Visualizador de auditoria na tela
+        sel_file = st.selectbox("Auditar comprovante na tela:", [f.name for f in up_files])
         for f in up_files:
             if f.name == sel_file:
                 if f.type == "application/pdf":
-                    b64 = base64.b64encode(f.getvalue()).decode()
+                    b64_view = base64.b64encode(f.getvalue()).decode()
                     st.markdown(
-                        f'<iframe src="data:application/pdf;base64,{b64}" '
+                        f'<iframe src="data:application/pdf;base64,{b64_view}" '
                         f'width="100%" height="420" type="application/pdf"></iframe>',
                         unsafe_allow_html=True
                     )
                 else:
                     st.image(f, use_column_width=True)
+
+        # Converte todos os arquivos para imagens (para embutir no PDF)
+        with st.spinner("Preparando comprovantes para o PDF…"):
+            uploads_info = uploads_para_b64_png(up_files)
 
     st.divider()
 
@@ -631,13 +739,19 @@ with tab_relatorio:
     </tr>
 </table>
 
+{montar_html_comprovantes(uploads_info)}
+
 </body>
 </html>"""
 
     pdf_bytes = gerar_pdf(html_pdf)
 
     if pdf_bytes:
-        st.success("✅ PDF gerado com sucesso!")
+        qtd_comp = sum(len(u["paginas"]) for u in uploads_info)
+        msg = f"✅ PDF gerado com sucesso!"
+        if qtd_comp:
+            msg += f" ({qtd_comp} página(s) de comprovantes embutida(s))"
+        st.success(msg)
         st.download_button(
             "📥 Baixar Relatório Executivo (PDF)",
             data=pdf_bytes,
