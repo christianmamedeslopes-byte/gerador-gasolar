@@ -22,7 +22,7 @@ except ImportError:
 # 1. CONFIGURAÇÃO DA PÁGINA
 # ==========================================
 st.set_page_config(
-    page_title="M e Lopes | ERP Financeiro",
+    page_title="Gestão de Obra | ERP",
     layout="wide",
     page_icon="💼"
 )
@@ -76,7 +76,7 @@ def init_db():
         """)
         # Clientes padrão
         conn.execute("INSERT OR IGNORE INTO clientes (nome, documento) VALUES (?,?)",
-                     ("Wellington Rafael", "014.565.671-36"))
+                     ("Wellington Rafael Nascimento de Sá", "014.565.671-36"))
         conn.execute("INSERT OR IGNORE INTO clientes (nome, documento) VALUES (?,?)",
                      ("G.A Solar", "66.283.560/0001-09"))
 
@@ -124,8 +124,10 @@ def add_despesa(responsavel, data, fornecedor, objeto, valor, categoria):
         )
 
 def delete_despesas(ids: list):
-    with sqlite3.connect(DB_PATH) as conn:
-        conn.executemany("DELETE FROM despesas WHERE id=?", [(i,) for i in ids])
+    conn = sqlite3.connect(DB_PATH)
+    conn.executemany("DELETE FROM despesas WHERE id=?", [(i,) for i in ids])
+    conn.commit()
+    conn.close()
 
 def import_bulk(responsavel: str, df_import: pd.DataFrame):
     with sqlite3.connect(DB_PATH) as conn:
@@ -137,8 +139,10 @@ def import_bulk(responsavel: str, df_import: pd.DataFrame):
             )
 
 def purgar_responsavel(responsavel: str):
-    with sqlite3.connect(DB_PATH) as conn:
-        conn.execute("DELETE FROM despesas WHERE responsavel=?", (responsavel,))
+    conn = sqlite3.connect(DB_PATH)
+    conn.execute("DELETE FROM despesas WHERE responsavel=?", (responsavel,))
+    conn.commit()
+    conn.close()
 
 # ==========================================
 # 3. UTILITÁRIOS
@@ -155,7 +159,6 @@ def logo_b64(path="logo.png") -> str | None:
         return None
 
 def gerar_grafico_pizza(df: pd.DataFrame) -> str | None:
-    """Donut com legenda lateral — sem labels sobrepostos no PDF."""
     if df.empty or "Categoria" not in df.columns:
         return None
     por_cat = df.groupby("Categoria")["Valor"].sum().sort_values(ascending=False)
@@ -268,7 +271,6 @@ def montar_html_comprovantes(uploads_info: list[dict]) -> str:
         for i, b64 in enumerate(item["paginas"]):
             pg_label = f" — pág. {i+1}" if len(item["paginas"]) > 1 else ""
             
-            # A tag <pdf:nextpage /> é o segredo mágico do xhtml2pdf para pular de página!
             blocos.append(f"""
             <pdf:nextpage />
             <div style="margin-top: 20px;">
@@ -284,8 +286,8 @@ def montar_html_comprovantes(uploads_info: list[dict]) -> str:
 # 4. SIDEBAR
 # ==========================================
 with st.sidebar:
-    st.markdown("<p class='header-title'>M e Lopes</p>", unsafe_allow_html=True)
-    st.markdown("<p class='sub-title'>ERP Financeiro v11.0</p>", unsafe_allow_html=True)
+    st.markdown("<p class='header-title'>Caixa de Obra</p>", unsafe_allow_html=True)
+    st.markdown("<p class='sub-title'>Gestão Financeira</p>", unsafe_allow_html=True)
     st.divider()
 
     clientes = get_clientes()
@@ -472,7 +474,6 @@ with tab_dashboard:
 # ABA 3 — RELATÓRIO PDF
 # ==========================================
 with tab_relatorio:
-    # --- NOVO: FILTRO DE DATA ---
     df_bd = get_despesas(responsavel)
     
     st.markdown("#### Filtro do Relatório")
@@ -483,12 +484,10 @@ with tab_relatorio:
         data_fim = st.date_input("Data Final", value=date.today())
         
     if not df_bd.empty:
-        # Converte a coluna Data do banco para o formato de data e filtra
         df_bd["Data_fmt"] = pd.to_datetime(df_bd["Data"], errors="coerce").dt.date
         df = df_bd[(df_bd["Data_fmt"] >= data_inicio) & (df_bd["Data_fmt"] <= data_fim)].copy()
     else:
         df = df_bd.copy()
-    # -----------------------------
 
     val_adiantamento_pdf = st.number_input(
         "💰 Adiantamento para o Relatório (R$)", min_value=0.0, step=100.0, key="adiant_pdf"
@@ -601,8 +600,6 @@ with tab_relatorio:
         font-size: 9.5px;
         margin: 0; padding: 0;
     }}
-
-    /* ── CABEÇALHO ESCURO ── */
     .hdr-bar {{
         background: #0f172a;
         padding: 14px 20px 12px 20px;
@@ -623,8 +620,6 @@ with tab_relatorio:
         font-size: 8px; color: #94a3b8;
         text-align: right; margin: 0;
     }}
-
-    /* ── KPI CARDS ── */
     .kpi-wrap {{
         margin-bottom: 14px;
     }}
@@ -643,8 +638,6 @@ with tab_relatorio:
     .kpi-value {{
         font-size: 11px; font-weight: bold; color: #0f172a;
     }}
-
-    /* ── TÍTULOS DE SEÇÃO ── */
     .sec {{
         font-size: 9px; font-weight: bold; color: #0f172a;
         text-transform: uppercase; letter-spacing: .6px;
@@ -652,8 +645,6 @@ with tab_relatorio:
         padding: 5px 8px;
         margin: 14px 0 6px 0;
     }}
-
-    /* ── TABELA RESUMO ── */
     .t-resumo {{ width: 100%; border-collapse: collapse; }}
     .t-resumo th {{
         background: #1e40af; color: #fff;
@@ -665,8 +656,6 @@ with tab_relatorio:
         padding: 4px 8px; font-size: 9px;
     }}
     .t-resumo tr:nth-child(even) td {{ background: #f8fafc; }}
-
-    /* ── TABELA DETALHE ── */
     .t-det {{ width: 100%; border-collapse: collapse; table-layout: fixed; }}
     .t-det th {{
         background: #0f172a; color: #fff;
@@ -689,8 +678,6 @@ with tab_relatorio:
         border-top: 2px solid #0f172a;
     }}
     .t-total td:first-child {{ text-align: left; }}
-
-    /* ── RODAPÉ SALDO ── */
     .saldo-bloco {{
         border-left: 4px solid {cor_saldo};
         background: #f8fafc;
@@ -703,8 +690,6 @@ with tab_relatorio:
         font-size: 10px; font-weight: 600;
         color: #0f172a; margin: 2px 0 8px 0;
     }}
-
-    /* ── ASSINATURA ── */
     .ass-linha {{
         border-top: 1px solid #334155;
         padding-top: 5px;
@@ -712,8 +697,6 @@ with tab_relatorio:
         font-size: 8.5px; color: #64748b;
         width: 200px;
     }}
-
-    /* ── FOOTER ── */
     #footer_content {{
         text-align: center; font-size: 7.5px; color: #94a3b8;
         border-top: 1px solid #e2e8f0; padding-top: 5px;
@@ -723,19 +706,19 @@ with tab_relatorio:
 <body>
 
 <div id="footer_content">
-    M e Lopes Assessoria em Tecnologia &nbsp;&bull;&nbsp;
-    {now_str} &nbsp;&bull;&nbsp; Documento não fiscal
+    Gestão de Caixa de Obra &nbsp;&bull;&nbsp;
+    {now_str} &nbsp;&bull;&nbsp; Documento interno
 </div>
 
 <table class="hdr-bar" width="100%">
     <tr>
         <td style="vertical-align:middle; width:50%;">
             {logo_h}
-            <p class="hdr-empresa" style="{'display:none' if lb64 else ''}">M e Lopes</p>
-            <p class="hdr-sub">Assessoria em Tecnologia</p>
+            <p class="hdr-empresa" style="{'display:none' if lb64 else ''}">{responsavel}</p>
+            <p class="hdr-sub">Controle Financeiro de Obra</p>
         </td>
         <td style="vertical-align:middle; width:50%;">
-            <p class="hdr-titulo">Prestação de Contas — Caixa de Obra</p>
+            <p class="hdr-titulo">Prestação de Contas</p>
             <p class="hdr-emissao">Emissão: {now_str} &nbsp;|&nbsp; Ref: {ref_str}</p>
         </td>
     </tr>
