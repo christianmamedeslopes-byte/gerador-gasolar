@@ -1,2 +1,3 @@
 pandas
 streamlit
+xhtml2pdf
