@@ -1,8 +1,4 @@
 import streamlit as st
-# ==========================================
-# ABA 3
-# ==========================================
-
 with aba3:
 
     st.subheader("Relatório PDF")
