@@ -1,63 +1,60 @@
 import streamlit as st
-with aba3:
+import pandas as pd
+import sqlite3
+import io
+import base64
+import matplotlib
+matplotlib.use('Agg')
+import matplotlib.pyplot as plt
+import plotly.express as px
 
-    st.subheader("Relatório PDF")
+from datetime import datetime, date
+from io import BytesIO
+from PIL import Image
+from typing import Optional
+from weasyprint import HTML
 
-    arquivos = st.file_uploader(
-        "Anexar comprovantes",
-        accept_multiple_files=True,
-        type=["pdf", "png", "jpg", "jpeg"]
-    )
+# ==========================================
+# CONFIG PAGE
+# ==========================================
 
-    if st.button("Gerar PDF"):
+st.set_page_config(
+    page_title="M e Lopes | ERP Financeiro",
+    layout="wide",
+    page_icon="💼"
+)
 
-        total = float(df["Valor"].sum()) if not df.empty else 0
+# ==========================================
+# CSS
+# ==========================================
 
-        linhas = ""
+st.markdown("""
+<style>
+html, body, [class*="css"] {
+    font-family: Arial, sans-serif;
+}
 
-        for _, row in df.iterrows():
+div[data-testid="stMetric"] {
+    background: white;
+    border-radius: 12px;
+    padding: 16px;
+    border: 1px solid #e2e8f0;
+}
 
-            linhas += f"""
-            <tr>
-                <td>{row['Data']}</td>
-                <td>{row['Fornecedor']}</td>
-                <td>{row['Objeto']}</td>
-                <td>{row['Categoria']}</td>
-                <td>R$ {formatar_br(row['Valor'])}</td>
-            </tr>
-            """
+.block-container {
+    padding-top: 1rem;
+}
+</style>
+""", unsafe_allow_html=True)
 
-        html = f"""
-        <html>
-        <body>
+# ==========================================
+# DATABASE
+# ==========================================
 
-        <h1>Prestação de Contas</h1>
+DB_PATH = "erp_financeiro.db"
 
-        <p><b>Responsável:</b> {responsavel}</p>
-        <p><b>Total:</b> R$ {formatar_br(total)}</p>
-
-        <table border="1" cellspacing="0" cellpadding="5" width="100%">
-            <tr>
-                <th>Data</th>
-                <th>Fornecedor</th>
-                <th>Objeto</th>
-                <th>Categoria</th>
-                <th>Valor</th>
-            </tr>
-            {linhas}
-        </table>
-
-        </body>
-        </html>
-        """
-
-        pdf_bytes = gerar_pdf(html)
-
-        st.success("PDF gerado")
-
-        st.download_button(
-            "Baixar PDF",
-            data=pdf_bytes,
-            file_name="relatorio.pdf",
-            mime="application/pdf"
-        )
+CATEGORIAS = [
+    "Combustível",
+    "Alimentação",
+    "Viagem",
+    "Material",
