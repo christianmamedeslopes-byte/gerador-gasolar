@@ -1,7 +1,4 @@
-streamlit
-pandas
-matplotlib
-xhtml2pdf
+Cstreamlitpandas
 plotly
-Pillow
-PyMuPDF
+matplotlib
+pillow
